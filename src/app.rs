@@ -1,3 +1,4 @@
+use crate::bibparse;
 use crate::bibtex;
 use crate::doi::{self, Token};
 use crate::editor::EntryEditor;
@@ -660,8 +661,13 @@ fn AddBar() -> impl IntoView {
     let text = RwSignal::new(String::new());
     let submit = move || {
         let input = text.get_untracked();
-        if !input.trim().is_empty() {
-            text.set(String::new());
+        if input.trim().is_empty() {
+            return;
+        }
+        text.set(String::new());
+        if bibparse::looks_like_bibtex(&input) {
+            import_bibtex(state, &input);
+        } else {
             add_identifiers(state, &input);
         }
     };
@@ -688,6 +694,43 @@ fn AddBar() -> impl IntoView {
             }}
         </div>
     }
+}
+
+pub fn import_bibtex(state: AppState, text: &str) {
+    let t = state.t_untracked();
+    let (raw, errors) = bibparse::parse(text);
+    for line in errors.iter().take(3) {
+        state.notify(Level::Warn, (t.bib_parse_error)(*line));
+    }
+    if raw.is_empty() {
+        if errors.is_empty() {
+            state.notify(Level::Warn, t.no_bib_entries);
+        }
+        return;
+    }
+    let target = state.current_collection();
+    let (mut added, mut skipped) = (0, 0);
+    state.lib.update(|l| {
+        for r in &raw {
+            let mut entry = bibparse::to_entry(r);
+            entry.id = new_id();
+            entry.key = bibtex::cite_key(&entry);
+            let id = match l.add_entry(entry, now()) {
+                AddOutcome::Added(id) => {
+                    added += 1;
+                    id
+                }
+                AddOutcome::Duplicate(id) => {
+                    skipped += 1;
+                    id
+                }
+            };
+            if let Some(cid) = &target {
+                l.add_to_collection(cid, &[id], now());
+            }
+        }
+    });
+    state.notify(Level::Ok, (t.imported)(added, skipped));
 }
 
 fn add_identifiers(state: AppState, input: &str) {
@@ -810,6 +853,24 @@ fn Toolbar() -> impl IntoView {
             }
         }
     };
+    let file_input = NodeRef::<leptos::html::Input>::new();
+    let import_files = move |ev: leptos::ev::Event| {
+        let input = event_target::<web_sys::HtmlInputElement>(&ev);
+        let Some(files) = input.files() else { return };
+        for file in (0..files.length()).filter_map(|i| files.get(i)) {
+            let promise = file.text();
+            spawn_local(async move {
+                if let Some(text) = wasm_bindgen_futures::JsFuture::from(promise)
+                    .await
+                    .ok()
+                    .and_then(|v| v.as_string())
+                {
+                    import_bibtex(state, &text);
+                }
+            });
+        }
+        input.set_value("");
+    };
     let new_entry = move |_| {
         let entry = Entry {
             id: new_id(),
@@ -867,6 +928,19 @@ fn Toolbar() -> impl IntoView {
                     {move || state.t().delete}
                 </button>
             </Show>
+            <input
+                class="hidden"
+                type="file"
+                accept=".bib,.bibtex,text/x-bibtex,text/plain"
+                multiple
+                node_ref=file_input
+                on:change=import_files
+            />
+            <button on:click=move |_| {
+                if let Some(el) = file_input.get_untracked() {
+                    el.click();
+                }
+            }>{move || state.t().import_bib}</button>
             <button on:click=new_entry>{move || state.t().new_entry}</button>
             <button class="primary" on:click=export>
                 {move || if count() > 0 { state.t().export_selected } else { state.t().export_bibtex }}

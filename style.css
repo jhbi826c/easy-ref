@@ -110,6 +110,10 @@ button.icon:hover {
   flex: 1;
 }
 
+.hidden {
+  display: none;
+}
+
 .muted {
   color: var(--muted);
 }

@@ -75,6 +75,10 @@ pub struct Strings {
     pub delete: &'static str,
     pub confirm_delete_entries: fn(usize) -> String,
     pub new_entry: &'static str,
+    pub import_bib: &'static str,
+    pub imported: fn(usize, usize) -> String,
+    pub bib_parse_error: fn(usize) -> String,
+    pub no_bib_entries: &'static str,
     pub export_bibtex: &'static str,
     pub export_selected: &'static str,
 
@@ -170,7 +174,7 @@ pub const ZH: Strings = Strings {
     delete_collection: "删除目录",
     confirm_delete_collection: |name| format!("删除目录「{name}」？条目本身不会被删除。"),
 
-    add_placeholder: "粘贴 DOI / 链接 / arXiv 编号，可一次多个，回车添加",
+    add_placeholder: "粘贴 DOI / 链接 / arXiv 编号 / BibTeX，可一次多个，回车添加",
     add: "添加",
     looking_up: |n| format!("正在查询 {n} 条…"),
     unrecognized: |raw| format!("无法识别：{raw}（IEEE Xplore 等链接请复制页面上的 DOI）"),
@@ -194,6 +198,16 @@ pub const ZH: Strings = Strings {
     delete: "删除",
     confirm_delete_entries: |n| format!("从文献库彻底删除 {n} 条？所有目录中都会移除。"),
     new_entry: "手动新建",
+    import_bib: "导入 .bib",
+    imported: |added, skipped| {
+        if skipped == 0 {
+            format!("已导入 {added} 条")
+        } else {
+            format!("已导入 {added} 条，{skipped} 条重复已跳过")
+        }
+    },
+    bib_parse_error: |line| format!("第 {line} 行附近的 BibTeX 条目无法解析，已跳过"),
+    no_bib_entries: "没有找到 BibTeX 条目",
     export_bibtex: "导出 BibTeX",
     export_selected: "导出所选 BibTeX",
 
@@ -314,7 +328,7 @@ pub const EN: Strings = Strings {
     delete_collection: "Delete collection",
     confirm_delete_collection: |name| format!("Delete collection \"{name}\"? Its entries stay in the library."),
 
-    add_placeholder: "Paste DOIs, links or arXiv IDs (several at once), press Enter",
+    add_placeholder: "Paste DOIs, links, arXiv IDs or BibTeX (several at once), press Enter",
     add: "Add",
     looking_up: |n| format!("Looking up {n}…"),
     unrecognized: |raw| {
@@ -340,6 +354,17 @@ pub const EN: Strings = Strings {
     delete: "Delete",
     confirm_delete_entries: |n| format!("Permanently delete {n} entries from the library and all collections?"),
     new_entry: "New entry",
+    import_bib: "Import .bib",
+    imported: |added, skipped| {
+        let noun = if added == 1 { "entry" } else { "entries" };
+        if skipped == 0 {
+            format!("Imported {added} {noun}")
+        } else {
+            format!("Imported {added} {noun}, skipped {skipped} duplicate(s)")
+        }
+    },
+    bib_parse_error: |line| format!("Skipped a BibTeX entry near line {line} that could not be parsed"),
+    no_bib_entries: "No BibTeX entries found",
     export_bibtex: "Export BibTeX",
     export_selected: "Export selected",
 
