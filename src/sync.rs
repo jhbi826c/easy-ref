@@ -134,7 +134,7 @@ pub fn merge(a: &Library, b: &Library) -> Library {
             c
         })
         .collect();
-    collections.sort_by(|x, y| x.id.cmp(&y.id));
+    collections.sort_by(|x, y| x.order.total_cmp(&y.order).then_with(|| x.id.cmp(&y.id)));
 
     Library {
         entries,
@@ -290,7 +290,20 @@ mod tests {
             name: id.into(),
             entries: entries.iter().map(|s| s.to_string()).collect(),
             modified,
+            ..Default::default()
         }
+    }
+
+    #[test]
+    fn collection_order_propagates() {
+        let mut a = Library::default();
+        for id in ["c1", "c2", "c3"] {
+            a.create_collection(id.into(), id, 1.0);
+        }
+        let b = a.clone();
+        a.move_collection("c3", "c1", false, 2.0);
+        let names: Vec<_> = merge(&b, &a).collections.into_iter().map(|c| c.id).collect();
+        assert_eq!(names, ["c3", "c1", "c2"]);
     }
 
     #[test]

@@ -44,6 +44,7 @@ pub struct AppState {
     /// Column and ascending flag.
     pub sort: RwSignal<(SortColumn, bool)>,
     pub dragging: RwSignal<Vec<String>>,
+    pub dragging_collection: RwSignal<Option<String>>,
     /// DOIs waiting for lookup with their target collection.
     pub queue: RwSignal<VecDeque<(String, Option<String>)>>,
     pub busy: RwSignal<bool>,
@@ -186,6 +187,7 @@ pub fn App() -> impl IntoView {
         search: RwSignal::new(String::new()),
         sort: RwSignal::new((SortColumn::Added, false)),
         dragging: RwSignal::new(vec![]),
+        dragging_collection: RwSignal::new(None),
         queue: RwSignal::new(VecDeque::new()),
         busy: RwSignal::new(false),
         lang: RwSignal::new(initial_lang()),
@@ -456,10 +458,48 @@ fn CollectionItem(id: String, name: String, count: usize, renaming: RwSignal<Opt
             .with(|v| matches!(v, View::Collection(c) if *c == id.get_value()))
     };
     let is_renaming = move || renaming.with(|r| r.as_deref() == Some(id.get_value().as_str()));
+    let item = NodeRef::<leptos::html::Div>::new();
+    // Some(true) drops after this item, Some(false) before it.
+    let drop_after = RwSignal::new(None::<bool>);
+    let is_dragged = move || {
+        state
+            .dragging_collection
+            .with(|d| d.as_deref() == Some(id.get_value().as_str()))
+    };
 
+    let on_dragstart = move |ev: DragEvent| {
+        if let Some(dt) = ev.data_transfer() {
+            let _ = dt.set_data("text/plain", &name_for(state, &id.get_value()));
+            dt.set_effect_allowed("move");
+        }
+        state.dragging_collection.set(Some(id.get_value()));
+    };
+    let on_dragover = move |ev: DragEvent| {
+        ev.prevent_default();
+        match state.dragging_collection.get_untracked() {
+            Some(dragged) if dragged != id.get_value() => {
+                let after = item.get_untracked().is_some_and(|el| {
+                    let rect = el.get_bounding_client_rect();
+                    f64::from(ev.client_y()) > rect.top() + rect.height() / 2.0
+                });
+                drop_after.set(Some(after));
+            }
+            Some(_) => {}
+            None => hover.set(true),
+        }
+    };
     let on_drop = move |ev: DragEvent| {
         ev.prevent_default();
         hover.set(false);
+        if let Some(dragged) = state.dragging_collection.get_untracked() {
+            let after = drop_after.get_untracked().unwrap_or(false);
+            drop_after.set(None);
+            state.dragging_collection.set(None);
+            state
+                .lib
+                .update(|l| l.move_collection(&dragged, &id.get_value(), after, now()));
+            return;
+        }
         let ids = state.dragging.get_untracked();
         if ids.is_empty() {
             return;
@@ -497,15 +537,25 @@ fn CollectionItem(id: String, name: String, count: usize, renaming: RwSignal<Opt
                 view! {
                     <div
                         class="nav-item collection"
+                        node_ref=item
+                        draggable="true"
                         class:active=is_active
                         class:drophover=move || hover.get()
+                        class:dropbefore=move || drop_after.get() == Some(false)
+                        class:dropafter=move || drop_after.get() == Some(true)
+                        class:dragged=is_dragged
                         on:click=move |_| state.view.set(View::Collection(id.get_value()))
                         on:dblclick=move |_| renaming.set(Some(id.get_value()))
-                        on:dragover=move |ev: DragEvent| {
-                            ev.prevent_default();
-                            hover.set(true);
+                        on:dragstart=on_dragstart
+                        on:dragend=move |_| {
+                            state.dragging_collection.set(None);
+                            drop_after.set(None);
                         }
-                        on:dragleave=move |_| hover.set(false)
+                        on:dragover=on_dragover
+                        on:dragleave=move |_| {
+                            hover.set(false);
+                            drop_after.set(None);
+                        }
                         on:drop=on_drop
                     >
                         <IconFolder />

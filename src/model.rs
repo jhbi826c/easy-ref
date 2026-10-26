@@ -170,6 +170,8 @@ pub struct Collection {
     pub id: String,
     pub name: String,
     pub entries: Vec<String>,
+    /// Position in the sidebar.
+    pub order: f64,
     pub modified: f64,
 }
 
@@ -297,12 +299,36 @@ impl Library {
     }
 
     pub fn create_collection(&mut self, id: String, name: &str, now: f64) {
+        let order = self.collections.iter().map(|c| c.order + 1.0).fold(0.0, f64::max);
         self.collections.push(Collection {
             id,
             name: name.trim().to_string(),
             entries: vec![],
+            order,
             modified: now,
         });
+    }
+
+    /// Moves collection `id` before or after `target`.
+    pub fn move_collection(&mut self, id: &str, target: &str, after: bool, now: f64) {
+        if id == target {
+            return;
+        }
+        let Some(from) = self.collections.iter().position(|c| c.id == id) else {
+            return;
+        };
+        let moved = self.collections.remove(from);
+        let Some(to) = self.collections.iter().position(|c| c.id == target) else {
+            self.collections.insert(from, moved);
+            return;
+        };
+        self.collections.insert(if after { to + 1 } else { to }, moved);
+        for (i, c) in self.collections.iter_mut().enumerate() {
+            if c.order != i as f64 {
+                c.order = i as f64;
+                c.modified = now;
+            }
+        }
     }
 
     pub fn rename_collection(&mut self, id: &str, name: &str, now: f64) {
@@ -440,5 +466,22 @@ mod tests {
         lib.delete_entries(&["e".into()], 2.0);
         assert!(lib.collection("c").unwrap().entries.is_empty());
         assert_eq!(lib.deleted.get("e"), Some(&2.0));
+    }
+
+    #[test]
+    fn moves_collections() {
+        let mut lib = Library::default();
+        for id in ["a", "b", "c", "d"] {
+            lib.create_collection(id.into(), id, 0.0);
+        }
+        let ids = |lib: &Library| lib.collections.iter().map(|c| c.id.clone()).collect::<Vec<_>>();
+        lib.move_collection("d", "a", false, 1.0);
+        assert_eq!(ids(&lib), ["d", "a", "b", "c"]);
+        lib.move_collection("d", "b", true, 2.0);
+        assert_eq!(ids(&lib), ["a", "b", "d", "c"]);
+        let orders: Vec<f64> = lib.collections.iter().map(|c| c.order).collect();
+        assert_eq!(orders, [0.0, 1.0, 2.0, 3.0]);
+        lib.create_collection("e".into(), "e", 3.0);
+        assert_eq!(lib.collections.last().unwrap().order, 4.0);
     }
 }
