@@ -58,6 +58,8 @@ pub struct Strings {
 
     pub add_placeholder: &'static str,
     pub add: &'static str,
+    pub import: &'static str,
+    pub bib_detected: &'static str,
     pub looking_up: fn(usize) -> String,
     pub unrecognized: fn(&str) -> String,
     pub lookup_failed: fn(&str, &LookupError) -> String,
@@ -176,6 +178,8 @@ pub const ZH: Strings = Strings {
 
     add_placeholder: "粘贴 DOI / 链接 / arXiv 编号 / BibTeX，可一次多个，回车添加",
     add: "添加",
+    import: "导入",
+    bib_detected: "检测到 BibTeX：回车换行，⌘/Ctrl + 回车导入",
     looking_up: |n| format!("正在查询 {n} 条…"),
     unrecognized: |raw| format!("无法识别：{raw}（IEEE Xplore 等链接请复制页面上的 DOI）"),
     lookup_failed: |doi, e| match e {
@@ -220,7 +224,7 @@ pub const ZH: Strings = Strings {
     col_added: "添加时间",
     untitled: "（无标题）",
     empty_title: "这里还没有条目",
-    empty_hint: "在上方粘贴 DOI、doi.org / ACM / Springer 链接或 arXiv 编号，回车即可添加。",
+    empty_hint: "在上方粘贴 DOI、doi.org / ACM / Springer 链接、arXiv 编号或 BibTeX 即可添加，也可以导入 .bib 文件。",
     no_match: "没有匹配的条目",
     entry_type: |t| match t {
         EntryType::Article => "期刊",
@@ -330,6 +334,8 @@ pub const EN: Strings = Strings {
 
     add_placeholder: "Paste DOIs, links, arXiv IDs or BibTeX (several at once), press Enter",
     add: "Add",
+    import: "Import",
+    bib_detected: "BibTeX detected: Enter adds a line, ⌘/Ctrl + Enter imports",
     looking_up: |n| format!("Looking up {n}…"),
     unrecognized: |raw| {
         format!("Not recognized: {raw} (for IEEE Xplore and similar links, copy the DOI from the page)")
@@ -377,7 +383,7 @@ pub const EN: Strings = Strings {
     col_added: "Added",
     untitled: "(untitled)",
     empty_title: "No entries yet",
-    empty_hint: "Paste a DOI, a doi.org / ACM / Springer link or an arXiv ID above and press Enter.",
+    empty_hint: "Paste a DOI, a doi.org / ACM / Springer link, an arXiv ID or BibTeX above, or import a .bib file.",
     no_match: "No matching entries",
     entry_type: |t| match t {
         EntryType::Article => "Journal",

@@ -659,34 +659,62 @@ fn NameInput(initial: String, #[prop(into)] on_done: Callback<Option<String>>) -
 fn AddBar() -> impl IntoView {
     let state = expect_context::<AppState>();
     let text = RwSignal::new(String::new());
+    let is_bib = Memo::new(move |_| text.with(|t| bibparse::looks_like_bibtex(t)));
+    let area = NodeRef::<leptos::html::Textarea>::new();
+
+    // Grow with the content; CSS caps the height.
+    Effect::new(move |_| {
+        text.track();
+        request_animation_frame(move || {
+            if let Some(el) = area.get_untracked() {
+                let style = web_sys::HtmlElement::style(&el);
+                let _ = style.set_property("height", "auto");
+                let _ = style.set_property("height", &format!("{}px", el.scroll_height() + 2));
+            }
+        });
+    });
+
     let submit = move || {
         let input = text.get_untracked();
         if input.trim().is_empty() {
             return;
         }
-        text.set(String::new());
         if bibparse::looks_like_bibtex(&input) {
-            import_bibtex(state, &input);
+            if import_bibtex(state, &input) {
+                text.set(String::new());
+            }
         } else {
+            text.set(String::new());
             add_identifiers(state, &input);
         }
     };
     view! {
         <div class="addbar">
-            <textarea
-                rows=1
-                placeholder=move || state.t().add_placeholder
-                prop:value=move || text.get()
-                on:input=move |ev| text.set(event_target_value(&ev))
-                on:keydown=move |ev: KeyboardEvent| {
-                    if ev.key() == "Enter" && !ev.shift_key() {
-                        ev.prevent_default();
-                        submit();
+            <div class="addbar-input">
+                <textarea
+                    rows=1
+                    node_ref=area
+                    spellcheck="false"
+                    placeholder=move || state.t().add_placeholder
+                    prop:value=move || text.get()
+                    on:input=move |ev| text.set(event_target_value(&ev))
+                    on:keydown=move |ev: KeyboardEvent| {
+                        if ev.key() != "Enter" || ev.is_composing() {
+                            return;
+                        }
+                        let force = ev.meta_key() || ev.ctrl_key();
+                        if force || (!ev.shift_key() && !is_bib.get_untracked()) {
+                            ev.prevent_default();
+                            submit();
+                        }
                     }
-                }
-            ></textarea>
+                ></textarea>
+                <Show when=move || is_bib.get()>
+                    <div class="addbar-hint">{move || state.t().bib_detected}</div>
+                </Show>
+            </div>
             <button class="primary" on:click=move |_| submit()>
-                {move || state.t().add}
+                {move || if is_bib.get() { state.t().import } else { state.t().add }}
             </button>
             {move || {
                 let n = state.queue.with(|q| q.len()) + state.busy.get() as usize;
@@ -696,7 +724,8 @@ fn AddBar() -> impl IntoView {
     }
 }
 
-pub fn import_bibtex(state: AppState, text: &str) {
+/// Returns true if every entry in `text` was parsed.
+pub fn import_bibtex(state: AppState, text: &str) -> bool {
     let t = state.t_untracked();
     let (raw, errors) = bibparse::parse(text);
     for line in errors.iter().take(3) {
@@ -706,7 +735,7 @@ pub fn import_bibtex(state: AppState, text: &str) {
         if errors.is_empty() {
             state.notify(Level::Warn, t.no_bib_entries);
         }
-        return;
+        return false;
     }
     let target = state.current_collection();
     let (mut added, mut skipped) = (0, 0);
@@ -731,6 +760,7 @@ pub fn import_bibtex(state: AppState, text: &str) {
         }
     });
     state.notify(Level::Ok, (t.imported)(added, skipped));
+    errors.is_empty()
 }
 
 fn add_identifiers(state: AppState, input: &str) {
@@ -865,7 +895,7 @@ fn Toolbar() -> impl IntoView {
                     .ok()
                     .and_then(|v| v.as_string())
                 {
-                    import_bibtex(state, &text);
+                    let _ = import_bibtex(state, &text);
                 }
             });
         }
