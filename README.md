@@ -5,6 +5,7 @@ A small reference manager written in Rust (Leptos + WebAssembly). It runs as a s
 ## Features
 
 - Paste DOIs, doi.org / ACM / Springer links or arXiv IDs (several at once) to create entries; metadata comes from Crossref and DataCite
+- Paste BibTeX copied from Google Scholar, ACM, IEEE Xplore, DBLP or arXiv, or import whole `.bib` files; LaTeX accents are decoded, and `{...}` case protection and `and others` are kept
 - Duplicates (same DOI, or same title and first author) are not added twice
 - A library view with every entry, plus collections; an entry can belong to several collections (drag and drop or batch add)
 - Table columns for title, authors, year, venue, type, citation key and date added, sortable by clicking the header
