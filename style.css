@@ -121,9 +121,26 @@ button.icon:hover {
 /* layout */
 
 .app {
+  position: relative;
   display: grid;
-  grid-template-columns: 230px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width, 230px) minmax(0, 1fr);
   height: 100vh;
+}
+
+.resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--sidebar-width, 230px) - 3px);
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 5;
+}
+
+.resizer:hover,
+.resizer.dragging {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 .sidebar {
@@ -798,6 +815,10 @@ button:disabled {
   .app {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .resizer {
+    display: none;
   }
 
   .sidebar {

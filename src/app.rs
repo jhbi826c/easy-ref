@@ -9,13 +9,14 @@ use crate::settings::{SettingsDialog, Theme};
 use crate::storage::{self, new_id, now};
 use crate::sync::{self, SyncConfig, SyncError};
 use crate::table::{EntryTable, SortColumn};
-use leptos::ev::{DragEvent, KeyboardEvent};
+use leptos::ev::{DragEvent, KeyboardEvent, PointerEvent};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
+use wasm_bindgen::JsCast;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Level {
@@ -250,9 +251,12 @@ pub fn App() -> impl IntoView {
         }
     });
 
+    let sidebar_width = RwSignal::new(storage::load::<Option<f64>>(storage::SIDEBAR_KEY).unwrap_or(SIDEBAR_DEFAULT));
+
     view! {
-        <div class="app">
+        <div class="app" style=move || format!("--sidebar-width: {}px", sidebar_width.get())>
             <Sidebar />
+            <SidebarResizer width=sidebar_width />
             <main class="main">
                 <AddBar />
                 <Toolbar />
@@ -265,6 +269,52 @@ pub fn App() -> impl IntoView {
             </Show>
             <Notices />
         </div>
+    }
+}
+
+const SIDEBAR_DEFAULT: f64 = 230.0;
+const SIDEBAR_MIN: f64 = 160.0;
+const SIDEBAR_MAX: f64 = 480.0;
+
+#[component]
+fn SidebarResizer(width: RwSignal<f64>) -> impl IntoView {
+    let state = expect_context::<AppState>();
+    let dragging = RwSignal::new(false);
+    let save = move || storage::save(storage::SIDEBAR_KEY, &Some(width.get_untracked()));
+
+    let on_down = move |ev: PointerEvent| {
+        ev.prevent_default();
+        if let Some(el) = ev.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()) {
+            let _ = el.set_pointer_capture(ev.pointer_id());
+        }
+        dragging.set(true);
+    };
+    let on_move = move |ev: PointerEvent| {
+        if dragging.get_untracked() {
+            width.set((ev.client_x() as f64).clamp(SIDEBAR_MIN, SIDEBAR_MAX));
+        }
+    };
+    let on_up = move |_: PointerEvent| {
+        if dragging.get_untracked() {
+            dragging.set(false);
+            save();
+        }
+    };
+
+    view! {
+        <div
+            class="resizer"
+            class:dragging=move || dragging.get()
+            title=move || state.t().resize_sidebar
+            on:pointerdown=on_down
+            on:pointermove=on_move
+            on:pointerup=on_up
+            on:pointercancel=on_up
+            on:dblclick=move |_| {
+                width.set(SIDEBAR_DEFAULT);
+                save();
+            }
+        ></div>
     }
 }
 
