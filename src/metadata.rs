@@ -424,6 +424,59 @@ const KNOWN_VENUES: [(&str, &str); 8] = [
     ("proceedings of the national academy of sciences", "PNAS"),
 ];
 
+/// Distinctive parts of conference names that are often written out in full.
+const CONFERENCES: [(&str, &str); 40] = [
+    ("computer vision and pattern recognition", "CVPR"),
+    ("international conference on computer vision", "ICCV"),
+    ("european conference on computer vision", "ECCV"),
+    ("asian conference on computer vision", "ACCV"),
+    ("winter conference on applications of computer vision", "WACV"),
+    ("british machine vision conference", "BMVC"),
+    ("neural information processing systems", "NeurIPS"),
+    ("international conference on machine learning", "ICML"),
+    ("international conference on learning representations", "ICLR"),
+    ("international joint conference on artificial intelligence", "IJCAI"),
+    ("aaai conference on artificial intelligence", "AAAI"),
+    (
+        "north american chapter of the association for computational linguistics",
+        "NAACL",
+    ),
+    (
+        "european chapter of the association for computational linguistics",
+        "EACL",
+    ),
+    ("annual meeting of the association for computational linguistics", "ACL"),
+    ("empirical methods in natural language processing", "EMNLP"),
+    ("international conference on computational linguistics", "COLING"),
+    ("knowledge discovery and data mining", "KDD"),
+    ("knowledge discovery & data mining", "KDD"),
+    ("the web conference", "WWW"),
+    ("world wide web conference", "WWW"),
+    ("research and development in information retrieval", "SIGIR"),
+    ("human factors in computing systems", "CHI"),
+    ("user interface software and technology", "UIST"),
+    ("computer-supported cooperative work", "CSCW"),
+    ("international conference on multimedia", "MM"),
+    ("international conference on robotics and automation", "ICRA"),
+    ("intelligent robots and systems", "IROS"),
+    ("computer and communications security", "CCS"),
+    ("symposium on security and privacy", "SP"),
+    ("operating systems design and implementation", "OSDI"),
+    ("symposium on operating systems principles", "SOSP"),
+    ("networked systems design and implementation", "NSDI"),
+    ("international conference on software engineering", "ICSE"),
+    ("foundations of software engineering", "FSE"),
+    ("programming language design and implementation", "PLDI"),
+    ("principles of programming languages", "POPL"),
+    ("international symposium on computer architecture", "ISCA"),
+    (
+        "architectural support for programming languages and operating systems",
+        "ASPLOS",
+    ),
+    ("international conference on management of data", "SIGMOD"),
+    ("medical image computing and computer assisted intervention", "MICCAI"),
+];
+
 /// Short venue name used in citation keys, e.g. `CVPR`, `TPAMI`, `CHI`.
 pub fn venue_abbrev(venue: &str, event_acronym: Option<&str>, doi: &str) -> String {
     if doi::arxiv_id_from_doi(doi).is_some() {
@@ -435,9 +488,10 @@ pub fn venue_abbrev(venue: &str, event_acronym: Option<&str>, doi: &str) -> Stri
         .or_else(|| parenthesized_acronym(venue))
         .or_else(|| {
             let lower = venue.to_lowercase();
-            KNOWN_VENUES
+            CONFERENCES
                 .iter()
-                .find(|(name, _)| lower.starts_with(name))
+                .find(|(phrase, _)| lower.contains(phrase))
+                .or_else(|| KNOWN_VENUES.iter().find(|(name, _)| lower.starts_with(name)))
                 .map(|(_, abbr)| abbr.to_string())
         })
         .or_else(|| caps_token(venue))
@@ -648,6 +702,40 @@ mod tests {
             "A novel method & more—fast"
         );
         assert_eq!(clean_text("R&D 5 &lt; 6"), "R&D 5 < 6");
+    }
+
+    #[test]
+    fn spelled_out_conference_names() {
+        let cases = [
+            (
+                "Proceedings of the IEEE conference on computer vision and pattern recognition",
+                "CVPR",
+            ),
+            (
+                "Proceedings of the IEEE/CVF international conference on computer vision",
+                "ICCV",
+            ),
+            ("International conference on machine learning", "ICML"),
+            (
+                "Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics",
+                "NAACL",
+            ),
+            (
+                "Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics",
+                "ACL",
+            ),
+            (
+                "2016 {IEEE} Conference on Computer Vision and Pattern Recognition, {CVPR} 2016, Las Vegas, NV, USA",
+                "CVPR",
+            ),
+            (
+                "Proceedings of the 25th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining",
+                "KDD",
+            ),
+        ];
+        for (venue, want) in cases {
+            assert_eq!(venue_abbrev(venue, None, ""), want, "{venue}");
+        }
     }
 
     #[test]
