@@ -16,6 +16,11 @@
         if (theme === "Light" || theme === "Dark") document.documentElement.dataset.theme = theme.toLowerCase();
       } catch (e) {}
       if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
+      window.addEventListener("beforeinstallprompt", function (e) {
+        e.preventDefault();
+        window.easyRefInstall = e;
+        window.dispatchEvent(new Event("easy-ref-installable"));
+      });
     </script>
     <link data-trunk rel="css" href="style.css" />
     <link data-trunk rel="copy-dir" href="icons" />

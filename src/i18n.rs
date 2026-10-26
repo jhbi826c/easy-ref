@@ -133,6 +133,11 @@ pub struct Strings {
     pub language: &'static str,
     pub theme_name: fn(Theme) -> &'static str,
 
+    pub install_section: &'static str,
+    pub install_button: &'static str,
+    pub install_hint: &'static str,
+    pub installed: &'static str,
+
     pub sync_section: &'static str,
     pub sync_intro: &'static str,
     pub field_token: &'static str,
@@ -262,6 +267,11 @@ pub const ZH: Strings = Strings {
         Theme::Light => "浅色",
         Theme::Dark => "深色",
     },
+
+    install_section: "安装为应用",
+    install_button: "安装",
+    install_hint: "安装后可以像普通应用一样从 Dock / 开始菜单打开，离线也能使用。Chrome / Edge 也可以点地址栏里的安装图标；Safari 请用「文件 → 添加到程序坞」，iPhone / iPad 用「分享 → 添加到主屏幕」。",
+    installed: "已作为应用安装。",
 
     sync_section: "GitHub 同步",
     sync_intro: "文献库会保存为 GitHub 仓库中的一个 JSON 文件，用于多设备同步。建议单独建一个私有仓库。",
@@ -403,6 +413,11 @@ pub const EN: Strings = Strings {
         Theme::Light => "Light",
         Theme::Dark => "Dark",
     },
+
+    install_section: "Install app",
+    install_button: "Install",
+    install_hint: "Once installed it opens from the Dock or Start menu like a regular app and works offline. In Chrome or Edge you can also use the install icon in the address bar; in Safari use File → Add to Dock, and on iPhone or iPad use Share → Add to Home Screen.",
+    installed: "Installed as an app.",
 
     sync_section: "GitHub sync",
     sync_intro: "The library is stored as a JSON file in a GitHub repository so it can sync across devices. A dedicated private repository is recommended.",

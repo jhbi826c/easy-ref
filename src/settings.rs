@@ -5,6 +5,7 @@ use crate::sync::{DEFAULT_BRANCH, DEFAULT_PATH, SyncConfig};
 use leptos::ev::MouseEvent;
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
+use wasm_bindgen::{JsCast, JsValue};
 
 const TOKEN_URL: &str = "https://github.com/settings/personal-access-tokens/new";
 
@@ -82,10 +83,74 @@ pub fn SettingsDialog() -> impl IntoView {
                                 .collect_view()}
                         </div>
                     </section>
+                    <InstallSettings />
                     <SyncSettings />
                 </div>
             </div>
         </div>
+    }
+}
+
+/// The deferred `beforeinstallprompt` event stored by index.html.
+const INSTALL_PROMPT: &str = "easyRefInstall";
+
+fn install_prompt() -> Option<JsValue> {
+    js_sys::Reflect::get(&window(), &INSTALL_PROMPT.into())
+        .ok()
+        .filter(|v| !v.is_undefined() && !v.is_null())
+}
+
+fn is_installed() -> bool {
+    window()
+        .match_media("(display-mode: standalone)")
+        .ok()
+        .flatten()
+        .is_some_and(|m| m.matches())
+}
+
+#[component]
+fn InstallSettings() -> impl IntoView {
+    let state = expect_context::<AppState>();
+    let t = move || state.t();
+    let can_prompt = RwSignal::new(install_prompt().is_some());
+    let installed = RwSignal::new(is_installed());
+
+    let ready = window_event_listener_untyped("easy-ref-installable", move |_| can_prompt.set(true));
+    let done = window_event_listener_untyped("appinstalled", move |_| {
+        installed.set(true);
+        can_prompt.set(false);
+    });
+    on_cleanup(move || {
+        ready.remove();
+        done.remove();
+    });
+
+    let install = move |_| {
+        let Some(event) = install_prompt() else { return };
+        if let Ok(prompt) =
+            js_sys::Reflect::get(&event, &"prompt".into()).and_then(|f| f.dyn_into::<js_sys::Function>())
+        {
+            let _ = prompt.call0(&event);
+        }
+        let _ = js_sys::Reflect::set(&window(), &INSTALL_PROMPT.into(), &JsValue::UNDEFINED);
+        can_prompt.set(false);
+    };
+
+    view! {
+        <section>
+            <h3>{move || t().install_section}</h3>
+            <Show
+                when=move || !installed.get()
+                fallback=move || view! { <p class="muted">{move || t().installed}</p> }
+            >
+                <Show when=move || can_prompt.get()>
+                    <button class="primary" on:click=install>
+                        {move || t().install_button}
+                    </button>
+                </Show>
+                <p class="muted small">{move || t().install_hint}</p>
+            </Show>
+        </section>
     }
 }
 
