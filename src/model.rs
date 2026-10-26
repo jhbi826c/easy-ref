@@ -335,10 +335,6 @@ impl Library {
             },
         }
     }
-
-    pub fn collections_of(&self, entry_id: &str) -> Vec<&Collection> {
-        self.collections.iter().filter(|c| c.entries.iter().any(|id| id == entry_id)).collect()
-    }
 }
 
 fn alpha_suffix(mut n: usize) -> String {

@@ -1,17 +1,14 @@
+mod app;
 mod bibtex;
 mod doi;
+mod editor;
+mod export;
 mod metadata;
 mod model;
 mod storage;
-
-use leptos::prelude::*;
-
-#[component]
-fn App() -> impl IntoView {
-    view! { <h1>"easy-ref"</h1> }
-}
+mod table;
 
 fn main() {
     console_error_panic_hook::set_once();
-    leptos::mount::mount_to_body(App);
+    leptos::mount::mount_to_body(app::App);
 }

@@ -18,17 +18,25 @@ pub async fn lookup(doi: &str) -> Result<Entry, String> {
     }
 }
 
-/// `Ok(None)` on 404.
+/// `Ok(None)` on 404. Retries rate-limited requests, which browsers report as network errors.
 async fn fetch_json(url: &str) -> Result<Option<Value>, String> {
-    let resp = gloo_net::http::Request::get(url)
-        .send()
-        .await
-        .map_err(|e| format!("网络错误：{e}"))?;
-    match resp.status() {
-        200 => resp.json::<Value>().await.map(Some).map_err(|e| format!("解析失败：{e}")),
-        404 => Ok(None),
-        code => Err(format!("{url} 返回 HTTP {code}")),
+    const ATTEMPTS: u32 = 4;
+    let mut last_error = String::new();
+    for attempt in 0..ATTEMPTS {
+        if attempt > 0 {
+            gloo_timers::future::TimeoutFuture::new(1000 << (attempt - 1)).await;
+        }
+        match gloo_net::http::Request::get(url).send().await {
+            Ok(resp) => match resp.status() {
+                200 => return resp.json::<Value>().await.map(Some).map_err(|e| format!("解析失败：{e}")),
+                404 => return Ok(None),
+                429 | 500..=599 => last_error = format!("HTTP {}", resp.status()),
+                code => return Err(format!("{url} 返回 HTTP {code}")),
+            },
+            Err(e) => last_error = e.to_string(),
+        }
     }
+    Err(format!("请求失败（可能被限流，请稍后重试）：{last_error}"))
 }
 
 fn encode_doi(doi: &str) -> String {
