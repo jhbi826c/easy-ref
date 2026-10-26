@@ -1,4 +1,5 @@
 use crate::app::AppState;
+use crate::bibtex::plain_title;
 use crate::i18n::Strings;
 use crate::model::{Entry, EntryType};
 use leptos::ev::{DragEvent, MouseEvent};
@@ -33,7 +34,7 @@ pub fn sort_entries(entries: &mut [Entry], column: SortColumn, ascending: bool) 
     let text = |s: &str| s.to_lowercase();
     entries.sort_by(|a, b| {
         let ord = match column {
-            SortColumn::Title => text(&a.title).cmp(&text(&b.title)),
+            SortColumn::Title => text(&plain_title(&a.title)).cmp(&text(&plain_title(&b.title))),
             SortColumn::Authors => text(a.first_author_family()).cmp(&text(b.first_author_family())),
             SortColumn::Year => a.year.cmp(&b.year),
             SortColumn::Venue => text(&a.venue).cmp(&text(&b.venue)),
@@ -52,7 +53,7 @@ fn matches(e: &Entry, query: &str) -> bool {
     }
     let haystack = format!(
         "{} {} {} {} {} {}",
-        e.title,
+        plain_title(&e.title),
         e.authors.iter().map(|p| p.display()).collect::<Vec<_>>().join(" "),
         e.venue,
         e.venue_short,
@@ -210,7 +211,7 @@ fn Row(entry: Entry, rows: Memo<Vec<Entry>>, anchor: RwSignal<Option<String>>) -
 
     let authors_full = entry.authors.iter().map(|p| p.display()).collect::<Vec<_>>().join("; ");
     let year = entry.year.map(|y| y.to_string()).unwrap_or_default();
-    let title = StoredValue::new(entry.title.clone());
+    let title = StoredValue::new(plain_title(&entry.title));
     let shown_title = move || {
         let t = title.get_value();
         if t.is_empty() {

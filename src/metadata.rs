@@ -409,8 +409,9 @@ fn decode_entities(s: &str) -> String {
 }
 
 const PUBLISHERS: [&str; 9] = ["IEEE", "ACM", "CVF", "SIAM", "IAPR", "IFIP", "IET", "AAAS", "SPIE"];
-const STOPWORDS: [&str; 14] = [
-    "of", "the", "on", "and", "for", "in", "a", "an", "to", "at", "with", "&", "de", "und",
+const STOPWORDS: [&str; 27] = [
+    "of", "the", "on", "and", "for", "in", "a", "an", "to", "at", "with", "&", "de", "und", "für", "der", "die", "das",
+    "des", "zur", "du", "et", "la", "le", "les", "di", "della",
 ];
 
 const KNOWN_VENUES: [(&str, &str); 8] = [

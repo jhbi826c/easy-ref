@@ -117,6 +117,11 @@ impl Person {
             format!("{} {}", self.given, self.family)
         }
     }
+
+    /// BibTeX's `and others`, rendered as "et al." by styles.
+    pub fn is_others(&self) -> bool {
+        !self.literal && self.given.is_empty() && self.family == "others"
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -155,11 +160,13 @@ impl Entry {
     }
 
     pub fn authors_display(&self) -> String {
-        match self.authors.len() {
-            0 => String::new(),
-            1 => self.authors[0].display(),
-            2 => format!("{} and {}", self.authors[0].display(), self.authors[1].display()),
-            _ => format!("{} et al.", self.authors[0].display()),
+        let truncated = self.authors.iter().any(Person::is_others);
+        let named: Vec<&Person> = self.authors.iter().filter(|p| !p.is_others()).collect();
+        match named.as_slice() {
+            [] => String::new(),
+            [only] if !truncated => only.display(),
+            [a, b] if !truncated => format!("{} and {}", a.display(), b.display()),
+            [first, ..] => format!("{} et al.", first.display()),
         }
     }
 }

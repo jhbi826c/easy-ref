@@ -157,7 +157,9 @@ fn format_authors(authors: &[Person]) -> String {
         .iter()
         .map(|p| {
             let part = |s: &str| protect_and(&latex_text(&s.replace(',', " ")));
-            if p.literal {
+            if p.is_others() {
+                "others".to_string()
+            } else if p.literal {
                 format!("{{{}}}", latex_text(&p.family))
             } else if p.given.is_empty() {
                 format!("{{{}}}", latex_text(&p.family))
@@ -191,8 +193,72 @@ fn page_range(pages: &str) -> String {
 }
 
 /// Escapes the title and braces words whose capitalization must survive sentence-casing styles.
+/// Escapes the title. `{...}` groups in it are kept as written; elsewhere words whose
+/// capitalization must survive sentence-casing styles are braced.
 fn latex_title(title: &str) -> String {
-    title
+    if !braces_balanced(title) {
+        return latex_words(&title.replace(['{', '}'], ""));
+    }
+    let mut out = String::new();
+    let mut rest = title;
+    while let Some(open) = rest.find('{') {
+        let close = open + matching_brace(&rest[open..]);
+        out.push_str(&latex_words(&rest[..open]));
+        out.push('{');
+        out.push_str(&latex_text(&rest[open + 1..close]));
+        out.push('}');
+        rest = &rest[close + 1..];
+    }
+    out.push_str(&latex_words(rest));
+    out
+}
+
+fn braces_balanced(s: &str) -> bool {
+    let mut depth = 0i32;
+    for c in s.chars() {
+        match c {
+            '{' => depth += 1,
+            '}' => depth -= 1,
+            _ => {}
+        }
+        if depth < 0 {
+            return false;
+        }
+    }
+    depth == 0
+}
+
+/// Byte offset of the brace closing the one at the start of `s`.
+fn matching_brace(s: &str) -> usize {
+    let mut depth = 0;
+    for (i, c) in s.char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return i;
+                }
+            }
+            _ => {}
+        }
+    }
+    s.len() - 1
+}
+
+/// Title text without the protection braces, for display.
+pub fn plain_title(title: &str) -> String {
+    title.replace(['{', '}'], "")
+}
+
+fn latex_words(text: &str) -> String {
+    let lead = if text.starts_with(char::is_whitespace) { " " } else { "" };
+    let trail = if text.ends_with(char::is_whitespace) && !text.trim().is_empty() {
+        " "
+    } else {
+        ""
+    };
+    let words = text
         .split_whitespace()
         .map(|token| {
             let start = token.find(|c: char| c.is_alphanumeric());
@@ -212,7 +278,11 @@ fn latex_title(title: &str) -> String {
             }
         })
         .collect::<Vec<_>>()
-        .join(" ")
+        .join(" ");
+    if words.is_empty() {
+        return lead.to_string();
+    }
+    format!("{lead}{words}{trail}")
 }
 
 /// Escapes LaTeX special characters and converts accented letters to LaTeX commands.
@@ -483,6 +553,30 @@ mod tests {
             latex_title("Towards Real-Time Detection"),
             "Towards Real-Time Detection"
         );
+    }
+
+    #[test]
+    fn keeps_explicit_protection() {
+        assert_eq!(
+            latex_title("Über Sätze der {Principia Mathematica} und Systeme {I}"),
+            "{\\\"U}ber S{\\\"a}tze der {Principia Mathematica} und Systeme {I}"
+        );
+        assert_eq!(latex_title("{A} {B} c"), "{A} {B} c");
+        assert_eq!(latex_title("{R}-CNN & co"), "{R}-{CNN} \\& co");
+        assert_eq!(latex_title("Unbalanced {Brace"), "Unbalanced Brace");
+        assert_eq!(plain_title("der {Principia Mathematica}"), "der Principia Mathematica");
+    }
+
+    #[test]
+    fn keeps_and_others() {
+        let authors = [
+            person("Achiam", "Josh"),
+            Person {
+                family: "others".into(),
+                ..Default::default()
+            },
+        ];
+        assert_eq!(format_authors(&authors), "Achiam, Josh and others");
     }
 
     #[test]

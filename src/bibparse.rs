@@ -236,6 +236,86 @@ impl Parser<'_> {
 
 /// Converts LaTeX markup to plain Unicode text.
 pub fn delatex(s: &str) -> String {
+    collapse(&unlatex(s))
+}
+
+fn collapse(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Like [`delatex`], but keeps `{...}` groups that protect capital letters,
+/// e.g. `der {Principia Mathematica}`.
+fn delatex_title(raw: &str) -> String {
+    let chars: Vec<char> = raw.chars().collect();
+    let mut out = String::new();
+    let mut plain = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '\\' => {
+                let mut j = i + 1;
+                if chars.get(j).is_some_and(char::is_ascii_alphabetic) {
+                    while chars.get(j).is_some_and(char::is_ascii_alphabetic) {
+                        j += 1;
+                    }
+                    while chars.get(j) == Some(&' ') {
+                        j += 1;
+                    }
+                } else {
+                    j = (j + 1).min(chars.len());
+                }
+                if chars.get(j) == Some(&'{') {
+                    j = group_end(&chars, j) + 1;
+                }
+                plain.extend(&chars[i..j]);
+                i = j;
+            }
+            '{' => {
+                let end = group_end(&chars, i);
+                let inner: String = chars[i + 1..end].iter().collect();
+                let text = unlatex(&inner);
+                out.push_str(&unlatex(&plain));
+                plain.clear();
+                let special_char = inner.trim_start().starts_with('\\') && text.chars().count() <= 1;
+                if !special_char && text.chars().any(char::is_uppercase) {
+                    out.push('{');
+                    out.push_str(&text);
+                    out.push('}');
+                } else {
+                    out.push_str(&text);
+                }
+                i = end + 1;
+            }
+            c => {
+                plain.push(c);
+                i += 1;
+            }
+        }
+    }
+    out.push_str(&unlatex(&plain));
+    collapse(&out)
+}
+
+/// Index of the brace closing the one at `start`, or the last index if unbalanced.
+fn group_end(chars: &[char], start: usize) -> usize {
+    let mut depth = 0;
+    for (i, c) in chars.iter().enumerate().skip(start) {
+        match c {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return i;
+                }
+            }
+            _ => {}
+        }
+    }
+    chars.len().saturating_sub(1)
+}
+
+/// LaTeX to Unicode without collapsing whitespace.
+fn unlatex(s: &str) -> String {
     let chars: Vec<char> = s.chars().collect();
     let mut out = String::with_capacity(s.len());
     let mut i = 0;
@@ -270,7 +350,7 @@ pub fn delatex(s: &str) -> String {
         }
         i += 1;
     }
-    out.split_whitespace().collect::<Vec<_>>().join(" ")
+    out
 }
 
 const LETTER_ACCENTS: [&str; 9] = ["c", "v", "r", "H", "k", "u", "d", "b", "t"];
@@ -440,8 +520,14 @@ fn is_single_group(raw: &str) -> bool {
 /// Parses one BibTeX name: `Last, First`, `Last, Jr, First` or `First von Last`.
 pub fn parse_name(raw: &str) -> Option<Person> {
     let raw = raw.trim();
-    if raw.eq_ignore_ascii_case("others") || raw.is_empty() {
+    if raw.is_empty() {
         return None;
+    }
+    if raw.eq_ignore_ascii_case("others") {
+        return Some(Person {
+            family: "others".into(),
+            ..Default::default()
+        });
     }
     if is_single_group(raw) {
         return Some(Person {
@@ -619,7 +705,7 @@ pub fn to_entry(raw: &RawEntry) -> Entry {
 
     Entry {
         kind,
-        title: text("title"),
+        title: field("title").map(delatex_title).unwrap_or_default(),
         authors,
         year,
         month,
@@ -704,7 +790,8 @@ mod tests {
             (EntryType::Misc, "2303.08774", "Achiam2023arXiv")
         );
         assert_eq!(e[2].doi, "10.48550/arXiv.2303.08774");
-        assert_eq!(e[2].authors.len(), 2);
+        assert_eq!(e[2].authors.len(), 3);
+        assert!(e[2].authors[2].is_others());
     }
 
     #[test]
@@ -831,7 +918,7 @@ series = {CHI '19}
             )
         "#;
         let e = &entries(input)[0];
-        assert_eq!(e.title, "Literate Programming");
+        assert_eq!(e.title, "Literate {P}rogramming");
         assert_eq!(
             e.authors[0],
             Person {
@@ -868,6 +955,28 @@ series = {CHI '19}
     }
 
     #[test]
+    fn keeps_title_protection() {
+        let cases = [
+            (
+                r#"{\"U}ber Systeme der {Principia Mathematica} und {I}"#,
+                "Über Systeme der {Principia Mathematica} und {I}",
+            ),
+            ("{Attention Is All You Need}", "{Attention Is All You Need}"),
+            (
+                r#"G{\"o}del and {\L}ukasiewicz on {in vivo} \textit{Studies}"#,
+                "Gödel and Łukasiewicz on in vivo Studies",
+            ),
+            (
+                "The {{GPU}} era of {B}ayesian methods",
+                "The {GPU} era of {B}ayesian methods",
+            ),
+        ];
+        for (tex, want) in cases {
+            assert_eq!(delatex_title(tex), want, "{tex}");
+        }
+    }
+
+    #[test]
     fn parses_names() {
         let name = |s: &str| parse_name(s).unwrap().to_line();
         assert_eq!(name("van der Maaten, Laurens"), "van der Maaten, Laurens");
@@ -876,7 +985,7 @@ series = {CHI '19}
         assert_eq!(name("{OpenAI}"), "{OpenAI}");
         assert_eq!(name("{\\'E}mile Zola"), "Zola, Émile");
         assert_eq!(name("Plato"), "Plato");
-        assert!(parse_name("others").is_none());
+        assert!(parse_name("others").unwrap().is_others());
         assert_eq!(split_names("A and {Smith and Sons} and B").len(), 3);
     }
 
