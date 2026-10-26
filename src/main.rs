@@ -1,3 +1,4 @@
+mod bibtex;
 mod doi;
 mod metadata;
 mod model;

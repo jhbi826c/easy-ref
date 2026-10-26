@@ -106,8 +106,13 @@ pub fn from_crossref(msg: &Value, requested_doi: &str) -> Entry {
     }
     let url = text(&msg["URL"]);
     let url = if url.contains("doi.org/") { String::new() } else { url };
+    let address = match kind {
+        EntryType::Article | EntryType::Misc => String::new(),
+        _ => publisher_address(&publisher).to_string(),
+    };
 
     Entry {
+        address,
         venue_short: venue_abbrev(&venue, acronym.as_deref(), &doi),
         kind,
         title,
@@ -241,6 +246,31 @@ fn split_containers(titles: &[String]) -> (String, String) {
             (book, series)
         }
     }
+}
+
+const PUBLISHER_ADDRESSES: [(&str, &str); 13] = [
+    ("association for computing machinery", "New York, NY, USA"),
+    ("acm", "New York, NY, USA"),
+    ("ieee computer society", "Los Alamitos, CA, USA"),
+    ("ieee", "Piscataway, NJ, USA"),
+    ("institute of electrical and electronics engineers", "Piscataway, NJ, USA"),
+    ("springer international publishing", "Cham"),
+    ("springer berlin heidelberg", "Berlin, Heidelberg"),
+    ("springer nature singapore", "Singapore"),
+    ("association for computational linguistics", "Stroudsburg, PA, USA"),
+    ("usenix", "Berkeley, CA, USA"),
+    ("curran associates", "Red Hook, NY, USA"),
+    ("mit press", "Cambridge, MA, USA"),
+    ("cambridge university press", "Cambridge, UK"),
+];
+
+pub fn publisher_address(publisher: &str) -> &'static str {
+    let p = publisher.to_lowercase();
+    PUBLISHER_ADDRESSES
+        .iter()
+        .find(|(name, _)| p == *name || p.starts_with(&format!("{name} ")))
+        .map(|(_, addr)| *addr)
+        .unwrap_or("")
 }
 
 fn looks_like_proceedings(title: &str) -> bool {
@@ -444,8 +474,17 @@ fn initials(venue: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
+
+    const FIXTURES: [&str; 10] = ["cvpr", "tpami", "chi", "cacm", "eccv", "naacl", "acl", "tog", "nature", "access"];
+
+    pub fn fixture_entries() -> Vec<Entry> {
+        let mut entries: Vec<Entry> = FIXTURES.iter().map(|n| crossref(n)).collect();
+        let json: Value = serde_json::from_str(include_str!("../tests/fixtures/datacite-arxiv.json")).unwrap();
+        entries.push(from_datacite(&json["data"]["attributes"], "10.48550/arXiv.1706.03762"));
+        entries
+    }
 
     fn crossref(name: &str) -> Entry {
         let raw = match name {

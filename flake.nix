@@ -35,7 +35,9 @@
       in
       {
         devShells.default = pkgs.mkShell {
-          packages = webTools ++ [ pkgs.texliveSmall ];
+          packages = webTools ++ [
+            (pkgs.texliveSmall.withPackages (ps: [ ps.ieeetran ps.acmart ]))
+          ];
         };
 
         devShells.ci = pkgs.mkShell {

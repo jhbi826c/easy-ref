@@ -135,6 +135,8 @@ pub struct Entry {
     pub number: String,
     pub pages: String,
     pub publisher: String,
+    /// Publisher location.
+    pub address: String,
     pub doi: String,
     pub url: String,
     /// arXiv identifier, e.g. `1706.03762`.
