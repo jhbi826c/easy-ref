@@ -3,6 +3,7 @@ mod bibtex;
 mod doi;
 mod editor;
 mod export;
+mod i18n;
 mod metadata;
 mod model;
 mod storage;

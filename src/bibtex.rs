@@ -306,13 +306,20 @@ fn math_symbol(c: char) -> Option<&'static str> {
     })
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum Problem {
+    NoKey { title: String },
+    Missing { key: String, fields: Vec<&'static str> },
+    DuplicateKey(String),
+}
+
 /// Problems that would make BibTeX warn: missing required fields and duplicate keys.
-pub fn check(entries: &[&Entry]) -> Vec<String> {
+pub fn check(entries: &[&Entry]) -> Vec<Problem> {
     let mut problems = Vec::new();
     let mut seen: HashMap<&str, usize> = HashMap::new();
     for e in entries {
         if e.key.is_empty() {
-            problems.push(format!("「{}」没有引用 key", e.title));
+            problems.push(Problem::NoKey { title: e.title.clone() });
             continue;
         }
         *seen.entry(e.key.as_str()).or_default() += 1;
@@ -347,14 +354,12 @@ pub fn check(entries: &[&Entry]) -> Vec<String> {
             missing.push(name);
         }
         if !missing.is_empty() {
-            problems.push(format!("{}：缺少 {}", e.key, missing.join(", ")));
+            problems.push(Problem::Missing { key: e.key.clone(), fields: missing });
         }
     }
     let mut dups: Vec<_> = seen.into_iter().filter(|(_, n)| *n > 1).map(|(k, _)| k).collect();
     dups.sort();
-    for k in dups {
-        problems.push(format!("{k}：key 重复"));
-    }
+    problems.extend(dups.into_iter().map(|k| Problem::DuplicateKey(k.to_string())));
     problems
 }
 
@@ -454,8 +459,8 @@ mod tests {
         let a = Entry { key: "k".into(), kind: EntryType::Article, title: "T".into(), ..Default::default() };
         let b = a.clone();
         let problems = check(&[&a, &b]);
-        let missing = "k：缺少 author, year, volume/number, journal";
-        assert_eq!(problems, [missing, missing, "k：key 重复"]);
+        let missing = Problem::Missing { key: "k".into(), fields: vec!["author", "year", "volume/number", "journal"] };
+        assert_eq!(problems, [missing.clone(), missing, Problem::DuplicateKey("k".into())]);
     }
 
     /// Used by `scripts/check-bib.sh`.

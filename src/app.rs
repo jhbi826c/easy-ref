@@ -2,6 +2,7 @@ use crate::bibtex;
 use crate::doi::{self, Token};
 use crate::editor::EntryEditor;
 use crate::export::{Export, ExportDialog};
+use crate::i18n::{Lang, Strings};
 use crate::metadata;
 use crate::model::{AddOutcome, Entry, EntryType, Library, View};
 use crate::storage::{self, new_id, now};
@@ -43,9 +44,19 @@ pub struct AppState {
     /// DOIs waiting for lookup with their target collection.
     pub queue: RwSignal<VecDeque<(String, Option<String>)>>,
     pub busy: RwSignal<bool>,
+    pub lang: RwSignal<Lang>,
 }
 
 impl AppState {
+    pub fn t(&self) -> &'static Strings {
+        self.lang.get().strings()
+    }
+
+    /// For event handlers and async tasks.
+    pub fn t_untracked(&self) -> &'static Strings {
+        self.lang.get_untracked().strings()
+    }
+
     pub fn notify(&self, level: Level, text: impl Into<String>) {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let id = NEXT.fetch_add(1, Ordering::Relaxed);
@@ -68,7 +79,7 @@ impl AppState {
 
     pub fn view_name(&self) -> String {
         match self.view.get() {
-            View::Library => "全部文献".into(),
+            View::Library => self.t().library.into(),
             View::Collection(id) => self.lib.with(|l| l.collection(&id).map(|c| c.name.clone()).unwrap_or_default()),
         }
     }
@@ -103,10 +114,18 @@ pub fn App() -> impl IntoView {
         dragging: RwSignal::new(vec![]),
         queue: RwSignal::new(VecDeque::new()),
         busy: RwSignal::new(false),
+        lang: RwSignal::new(initial_lang()),
     };
     provide_context(state);
 
     Effect::new(move |_| state.lib.with(|l| storage::save(storage::LIBRARY_KEY, l)));
+    Effect::new(move |_| {
+        let lang = state.lang.get();
+        storage::save(storage::LANG_KEY, &Some(lang));
+        if let Some(root) = document().document_element() {
+            let _ = root.set_attribute("lang", lang.html_tag());
+        }
+    });
     Effect::new(move |_| {
         state.view.track();
         state.selected.set(HashSet::new());
@@ -134,6 +153,33 @@ pub fn App() -> impl IntoView {
             {move || editing.get().map(|id| view! { <EntryEditor id=id /> })}
             {move || state.exporting.get().map(|export| view! { <ExportDialog export=export /> })}
             <Notices />
+        </div>
+    }
+}
+
+fn initial_lang() -> Lang {
+    storage::load::<Option<Lang>>(storage::LANG_KEY)
+        .unwrap_or_else(|| Lang::from_browser(&window().navigator().language().unwrap_or_default()))
+}
+
+#[component]
+fn LangSwitch() -> impl IntoView {
+    let state = expect_context::<AppState>();
+    view! {
+        <div class="lang-switch">
+            {Lang::ALL
+                .into_iter()
+                .map(|lang| {
+                    view! {
+                        <button
+                            class:active=move || state.lang.get() == lang
+                            on:click=move |_| state.lang.set(lang)
+                        >
+                            {lang.name()}
+                        </button>
+                    }
+                })
+                .collect_view()}
         </div>
     }
 }
@@ -174,12 +220,12 @@ fn Sidebar() -> impl IntoView {
                 on:click=move |_| state.view.set(View::Library)
             >
                 <IconLibrary />
-                <span class="name">"全部文献"</span>
+                <span class="name">{move || state.t().library}</span>
                 <span class="count">{total}</span>
             </div>
             <div class="section-title">
-                <span>"目录"</span>
-                <button class="icon" title="新建目录" on:click=move |_| creating.set(true)>
+                <span>{move || state.t().collections}</span>
+                <button class="icon" title=move || state.t().new_collection on:click=move |_| creating.set(true)>
                     "+"
                 </button>
             </div>
@@ -193,8 +239,11 @@ fn Sidebar() -> impl IntoView {
                 <NameInput initial=String::new() on_done=create />
             </Show>
             <Show when=move || state.lib.with(|l| l.collections.is_empty()) && !creating.get()>
-                <p class="hint">"点 + 新建目录，把条目拖到目录上即可加入。"</p>
+                <p class="hint">{move || state.t().collections_hint}</p>
             </Show>
+            <div class="sidebar-footer">
+                <LangSwitch />
+            </div>
         </nav>
     }
 }
@@ -216,8 +265,7 @@ fn CollectionItem(id: String, name: String, count: usize, renaming: RwSignal<Opt
         }
         let mut added = 0;
         state.lib.update(|l| added = l.add_to_collection(&id.get_value(), &ids, now()));
-        let name = state.lib.with_untracked(|l| l.collection(&id.get_value()).map(|c| c.name.clone()));
-        state.notify(Level::Ok, format!("{added} 条加入「{}」", name.unwrap_or_default()));
+        state.notify(Level::Ok, (state.t_untracked().added_to_collection)(added, &name_for(state, &id.get_value())));
     };
     let rename = move |new_name: Option<String>| {
         renaming.set(None);
@@ -227,7 +275,7 @@ fn CollectionItem(id: String, name: String, count: usize, renaming: RwSignal<Opt
     };
     let remove = move |ev: leptos::ev::MouseEvent| {
         ev.stop_propagation();
-        let msg = format!("删除目录「{}」？条目本身不会被删除。", name_for(state, &id.get_value()));
+        let msg = (state.t_untracked().confirm_delete_collection)(&name_for(state, &id.get_value()));
         if window().confirm_with_message(&msg).unwrap_or(false) {
             state.lib.update(|l| l.delete_collection(&id.get_value(), now()));
             if is_active() {
@@ -263,14 +311,14 @@ fn CollectionItem(id: String, name: String, count: usize, renaming: RwSignal<Opt
                         on:drop=on_drop
                     >
                         <IconFolder />
-                        <span class="name" title="双击重命名">
+                        <span class="name" title=move || state.t().rename_hint>
                             {name}
                         </span>
                         <span class="actions">
-                            <button class="icon" title="导出 BibTeX" on:click=export>
+                            <button class="icon" title=move || state.t().export_bibtex on:click=export>
                                 "⇩"
                             </button>
-                            <button class="icon" title="删除目录" on:click=remove>
+                            <button class="icon" title=move || state.t().delete_collection on:click=remove>
                                 "×"
                             </button>
                         </span>
@@ -308,6 +356,7 @@ fn name_for(state: AppState, id: &str) -> String {
 
 #[component]
 fn NameInput(initial: String, #[prop(into)] on_done: Callback<Option<String>>) -> impl IntoView {
+    let state = expect_context::<AppState>();
     let input = NodeRef::<leptos::html::Input>::new();
     Effect::new(move |_| {
         if let Some(el) = input.get() {
@@ -327,7 +376,7 @@ fn NameInput(initial: String, #[prop(into)] on_done: Callback<Option<String>>) -
             class="name-input"
             node_ref=input
             value=initial
-            placeholder="目录名称"
+            placeholder=move || state.t().collection_name
             on:keydown=move |ev: KeyboardEvent| match ev.key().as_str() {
                 "Enter" => finish(Some(event_target_value(&ev))),
                 "Escape" => finish(None),
@@ -353,7 +402,7 @@ fn AddBar() -> impl IntoView {
         <div class="addbar">
             <textarea
                 rows=1
-                placeholder="粘贴 DOI / 链接 / arXiv 编号，可一次多个，回车添加"
+                placeholder=move || state.t().add_placeholder
                 prop:value=move || text.get()
                 on:input=move |ev| text.set(event_target_value(&ev))
                 on:keydown=move |ev: KeyboardEvent| {
@@ -364,11 +413,11 @@ fn AddBar() -> impl IntoView {
                 }
             ></textarea>
             <button class="primary" on:click=move |_| submit()>
-                "添加"
+                {move || state.t().add}
             </button>
             {move || {
                 let n = state.queue.with(|q| q.len()) + state.busy.get() as usize;
-                (n > 0).then(|| view! { <span class="pending">{format!("正在查询 {n} 条…")}</span> })
+                (n > 0).then(|| view! { <span class="pending">{(state.t().looking_up)(n)}</span> })
             }}
         </div>
     }
@@ -380,7 +429,7 @@ fn add_identifiers(state: AppState, input: &str) {
         let doi = match token {
             Token::Doi(doi) => doi,
             Token::Unrecognized(raw) => {
-                state.notify(Level::Warn, format!("无法识别：{raw}（IEEE Xplore 等链接请复制页面上的 DOI）"));
+                state.notify(Level::Warn, (state.t_untracked().unrecognized)(&raw));
                 continue;
             }
         };
@@ -406,7 +455,7 @@ async fn run_queue(state: AppState) {
         let mut entry = match metadata::lookup(&doi).await {
             Ok(entry) => entry,
             Err(e) => {
-                state.notify(Level::Error, format!("{doi}：{e}"));
+                state.notify(Level::Error, (state.t_untracked().lookup_failed)(&doi, &e));
                 continue;
             }
         };
@@ -429,21 +478,22 @@ async fn run_queue(state: AppState) {
     }
     state.busy.set(false);
     if added > 0 {
-        state.notify(Level::Ok, format!("已添加 {added} 条"));
+        state.notify(Level::Ok, (state.t_untracked().added_n)(added));
     }
 }
 
 fn report_duplicate(state: AppState, id: &str, target: Option<&str>) {
     let key = state.lib.with_untracked(|l| l.entry(id).map(|e| e.key.clone()).unwrap_or_default());
+    let t = state.t_untracked();
     let Some(cid) = target else {
-        return state.notify(Level::Warn, format!("{key} 已在文献库中，未重复添加"));
+        return state.notify(Level::Warn, (t.dup_in_library)(&key));
     };
     let mut added = 0;
     state.lib.update(|l| added = l.add_to_collection(cid, &[id.to_string()], now()));
     if added > 0 {
-        state.notify(Level::Ok, format!("{key} 已在文献库中，已加入当前目录"));
+        state.notify(Level::Ok, (t.dup_added_to_collection)(&key));
     } else {
-        state.notify(Level::Warn, format!("{key} 已在当前目录中"));
+        state.notify(Level::Warn, (t.dup_in_collection)(&key));
     }
 }
 
@@ -464,7 +514,7 @@ fn Toolbar() -> impl IntoView {
         let ids = selection();
         let mut added = 0;
         state.lib.update(|l| added = l.add_to_collection(&cid, &ids, now()));
-        state.notify(Level::Ok, format!("{added} 条加入「{}」", name_for(state, &cid)));
+        state.notify(Level::Ok, (state.t_untracked().added_to_collection)(added, &name_for(state, &cid)));
     };
     let remove_from = move |_| {
         if let Some(cid) = state.current_collection() {
@@ -475,7 +525,7 @@ fn Toolbar() -> impl IntoView {
     };
     let delete = move |_| {
         let ids = selection();
-        let msg = format!("从文献库彻底删除 {} 条？所有目录中都会移除。", ids.len());
+        let msg = (state.t_untracked().confirm_delete_entries)(ids.len());
         if window().confirm_with_message(&msg).unwrap_or(false) {
             state.lib.update(|l| l.delete_entries(&ids, now()));
             state.selected.set(HashSet::new());
@@ -508,21 +558,21 @@ fn Toolbar() -> impl IntoView {
             <span class="muted">
                 {move || {
                     let view = state.view.get();
-                    format!("{} 条", state.lib.with(|l| l.entries_in(&view).len()))
+                    (state.t().n_entries)(state.lib.with(|l| l.entries_in(&view).len()))
                 }}
             </span>
             <input
                 class="search"
                 type="search"
-                placeholder="搜索标题 / 作者 / 期刊 / key"
+                placeholder=move || state.t().search_placeholder
                 prop:value=move || state.search.get()
                 on:input=move |ev| state.search.set(event_target_value(&ev))
             />
             <div class="spacer"></div>
             <Show when=move || { count() > 0 }>
-                <span class="selcount">{move || format!("已选 {} 条", count())}</span>
+                <span class="selcount">{move || (state.t().n_selected)(count())}</span>
                 <select on:change=add_to>
-                    <option value="">"加入目录…"</option>
+                    <option value="">{move || state.t().add_to_collection}</option>
                     {move || {
                         state
                             .lib
@@ -535,15 +585,15 @@ fn Toolbar() -> impl IntoView {
                     }}
                 </select>
                 <Show when=in_collection>
-                    <button on:click=remove_from>"移出目录"</button>
+                    <button on:click=remove_from>{move || state.t().remove_from_collection}</button>
                 </Show>
                 <button class="danger" on:click=delete>
-                    "删除"
+                    {move || state.t().delete}
                 </button>
             </Show>
-            <button on:click=new_entry>"手动新建"</button>
+            <button on:click=new_entry>{move || state.t().new_entry}</button>
             <button class="primary" on:click=export>
-                {move || if count() > 0 { "导出所选 BibTeX" } else { "导出 BibTeX" }}
+                {move || if count() > 0 { state.t().export_selected } else { state.t().export_bibtex }}
             </button>
         </div>
     }

@@ -27,48 +27,58 @@ pub fn ExportDialog(export: Export) -> impl IntoView {
         .collect();
     let filename = StoredValue::new(format!("{filename}.bib"));
     let bib = StoredValue::new(bib);
+    let problems = StoredValue::new(problems);
+    let t = move || state.t();
     let close = move |_| state.exporting.set(None);
 
     let copy = move |_| {
         let promise = window().navigator().clipboard().write_text(&bib.get_value());
         spawn_local(async move {
             match wasm_bindgen_futures::JsFuture::from(promise).await {
-                Ok(_) => state.notify(Level::Ok, "已复制到剪贴板"),
-                Err(_) => state.notify(Level::Error, "复制失败，请手动选择文本复制"),
+                Ok(_) => state.notify(Level::Ok, state.t_untracked().copied),
+                Err(_) => state.notify(Level::Error, state.t_untracked().copy_failed),
             }
         });
     };
     let download = move |_| match download_text(&filename.get_value(), &bib.get_value()) {
         Ok(()) => {}
-        Err(_) => state.notify(Level::Error, "下载失败"),
+        Err(_) => state.notify(Level::Error, state.t_untracked().download_failed),
     };
 
     view! {
         <div class="backdrop" on:click=close>
             <div class="modal" on:click=|ev: MouseEvent| ev.stop_propagation()>
                 <header>
-                    <h2>"导出 BibTeX"</h2>
-                    <span class="muted">{format!("{count} 条 · {}", export.name)}</span>
+                    <h2>{move || t().export_title}</h2>
+                    <span class="muted">{move || format!("{} · {}", (t().n_entries)(count), export.name)}</span>
                     <div class="spacer"></div>
                     <button class="icon" on:click=close>
                         "×"
                     </button>
                 </header>
-                {(!problems.is_empty())
+                {problems
+                    .with_value(|p| !p.is_empty())
                     .then(|| {
                         view! {
                             <div class="problems">
-                                <strong>"以下条目可能让 BibTeX 产生警告，建议先补全："</strong>
-                                <ul>{problems.into_iter().map(|p| view! { <li>{p}</li> }).collect_view()}</ul>
+                                <strong>{move || t().problems_title}</strong>
+                                <ul>
+                                    {move || {
+                                        problems
+                                            .with_value(|p| {
+                                                p.iter().map(|p| view! { <li>{(t().problem)(p)}</li> }).collect_view()
+                                            })
+                                    }}
+                                </ul>
                             </div>
                         }
                     })}
                 <textarea class="bib-output" readonly prop:value=bib.get_value()></textarea>
                 <footer>
                     <div class="spacer"></div>
-                    <button on:click=copy>"复制"</button>
+                    <button on:click=copy>{move || t().copy}</button>
                     <button class="primary" on:click=download>
-                        {format!("下载 {}", filename.get_value())}
+                        {move || (t().download)(&filename.get_value())}
                     </button>
                 </footer>
             </div>

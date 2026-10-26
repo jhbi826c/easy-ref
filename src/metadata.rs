@@ -4,7 +4,16 @@ use crate::doi;
 use crate::model::{Entry, EntryType, Person};
 use serde_json::Value;
 
-pub async fn lookup(doi: &str) -> Result<Entry, String> {
+#[derive(Clone, Debug, PartialEq)]
+pub enum LookupError {
+    NotFound,
+    /// Network error or repeated rate limiting.
+    Failed(String),
+    Http(u16),
+    Parse(String),
+}
+
+pub async fn lookup(doi: &str) -> Result<Entry, LookupError> {
     if doi::arxiv_id_from_doi(doi).is_none() {
         let url = format!("https://api.crossref.org/works/{}", encode_doi(doi));
         if let Some(json) = fetch_json(&url).await? {
@@ -14,12 +23,12 @@ pub async fn lookup(doi: &str) -> Result<Entry, String> {
     let url = format!("https://api.datacite.org/dois/{}", encode_doi(doi));
     match fetch_json(&url).await? {
         Some(json) => Ok(from_datacite(&json["data"]["attributes"], doi)),
-        None => Err(format!("找不到 DOI：{doi}")),
+        None => Err(LookupError::NotFound),
     }
 }
 
 /// `Ok(None)` on 404. Retries rate-limited requests, which browsers report as network errors.
-async fn fetch_json(url: &str) -> Result<Option<Value>, String> {
+async fn fetch_json(url: &str) -> Result<Option<Value>, LookupError> {
     const ATTEMPTS: u32 = 4;
     let mut last_error = String::new();
     for attempt in 0..ATTEMPTS {
@@ -28,15 +37,15 @@ async fn fetch_json(url: &str) -> Result<Option<Value>, String> {
         }
         match gloo_net::http::Request::get(url).send().await {
             Ok(resp) => match resp.status() {
-                200 => return resp.json::<Value>().await.map(Some).map_err(|e| format!("解析失败：{e}")),
+                200 => return resp.json::<Value>().await.map(Some).map_err(|e| LookupError::Parse(e.to_string())),
                 404 => return Ok(None),
                 429 | 500..=599 => last_error = format!("HTTP {}", resp.status()),
-                code => return Err(format!("{url} 返回 HTTP {code}")),
+                code => return Err(LookupError::Http(code)),
             },
             Err(e) => last_error = e.to_string(),
         }
     }
-    Err(format!("请求失败（可能被限流，请稍后重试）：{last_error}"))
+    Err(LookupError::Failed(last_error))
 }
 
 fn encode_doi(doi: &str) -> String {

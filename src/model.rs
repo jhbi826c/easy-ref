@@ -40,18 +40,6 @@ impl EntryType {
     pub fn from_bibtex_name(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|t| t.bibtex_name() == name)
     }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            EntryType::Article => "期刊",
-            EntryType::InProceedings => "会议",
-            EntryType::InCollection => "书章节",
-            EntryType::Book => "书",
-            EntryType::PhdThesis => "博士论文",
-            EntryType::TechReport => "技术报告",
-            EntryType::Misc => "预印本/其他",
-        }
-    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

@@ -1,4 +1,5 @@
 use crate::app::AppState;
+use crate::i18n::Strings;
 use crate::model::{Entry, EntryType};
 use leptos::ev::{DragEvent, MouseEvent};
 use leptos::prelude::*;
@@ -16,14 +17,16 @@ pub enum SortColumn {
     Added,
 }
 
-const COLUMNS: [(SortColumn, &str, &str); 7] = [
-    (SortColumn::Title, "标题", "col-title"),
-    (SortColumn::Authors, "作者", "col-authors"),
-    (SortColumn::Year, "年份", "col-year"),
-    (SortColumn::Venue, "期刊 / 会议", "col-venue"),
-    (SortColumn::Type, "类型", "col-type"),
-    (SortColumn::Key, "引用 key", "col-key"),
-    (SortColumn::Added, "添加时间", "col-added"),
+type Label = fn(&Strings) -> &'static str;
+
+const COLUMNS: [(SortColumn, Label, &str); 7] = [
+    (SortColumn::Title, |t| t.col_title, "col-title"),
+    (SortColumn::Authors, |t| t.col_authors, "col-authors"),
+    (SortColumn::Year, |t| t.col_year, "col-year"),
+    (SortColumn::Venue, |t| t.col_venue, "col-venue"),
+    (SortColumn::Type, |t| t.col_type, "col-type"),
+    (SortColumn::Key, |t| t.col_key, "col-key"),
+    (SortColumn::Added, |t| t.col_added, "col-added"),
 ];
 
 pub fn sort_entries(entries: &mut [Entry], column: SortColumn, ascending: bool) {
@@ -105,7 +108,7 @@ pub fn EntryTable() -> impl IntoView {
             };
             view! {
                 <th class=class on:click=on_click>
-                    {label}
+                    {move || label(state.t())}
                     <span class="sort">{indicator}</span>
                 </th>
             }
@@ -135,10 +138,10 @@ pub fn EntryTable() -> impl IntoView {
                 <div class="empty">
                     <Show
                         when=move || state.search.with(|s| s.is_empty())
-                        fallback=|| view! { <div class="empty-title">"没有匹配的条目"</div> }
+                        fallback=move || view! { <div class="empty-title">{move || state.t().no_match}</div> }
                     >
-                        <div class="empty-title">"这里还没有条目"</div>
-                        <div>"在上方粘贴 DOI、doi.org / ACM / Springer 链接或 arXiv 编号，回车即可添加。"</div>
+                        <div class="empty-title">{move || state.t().empty_title}</div>
+                        <div>{move || state.t().empty_hint}</div>
                         <code>"10.1109/CVPR.2016.90    arXiv:1706.03762"</code>
                     </Show>
                 </div>
@@ -197,7 +200,13 @@ fn Row(entry: Entry, rows: Memo<Vec<Entry>>, anchor: RwSignal<Option<String>>) -
 
     let authors_full = entry.authors.iter().map(|p| p.display()).collect::<Vec<_>>().join("; ");
     let year = entry.year.map(|y| y.to_string()).unwrap_or_default();
-    let title = if entry.title.is_empty() { "（无标题）".to_string() } else { entry.title.clone() };
+    let title = StoredValue::new(entry.title.clone());
+    let shown_title = move || {
+        let t = title.get_value();
+        if t.is_empty() { state.t().untitled.to_string() } else { t }
+    };
+    let kind_class = format!("tag {}", type_class(entry.kind));
+    let label_entry = StoredValue::new(entry.clone());
 
     view! {
         <tr
@@ -210,8 +219,8 @@ fn Row(entry: Entry, rows: Memo<Vec<Entry>>, anchor: RwSignal<Option<String>>) -
             <td class="col-check" on:click=|ev: MouseEvent| ev.stop_propagation()>
                 <input type="checkbox" prop:checked=is_selected on:change=move |_| toggle() />
             </td>
-            <td class="col-title" title=title.clone()>
-                {title.clone()}
+            <td class="col-title" title=title.get_value()>
+                {shown_title}
             </td>
             <td class="col-authors" title=authors_full>
                 {entry.authors_display()}
@@ -223,7 +232,7 @@ fn Row(entry: Entry, rows: Memo<Vec<Entry>>, anchor: RwSignal<Option<String>>) -
                 {(entry.venue != entry.venue_short).then(|| entry.venue.clone())}
             </td>
             <td class="col-type">
-                <span class=format!("tag {}", type_class(entry.kind))>{type_label(&entry)}</span>
+                <span class=kind_class>{move || label_entry.with_value(|e| type_label(state.t(), e))}</span>
             </td>
             <td class="col-key">{entry.key.clone()}</td>
             <td class="col-added">{format_date(entry.added)}</td>
@@ -240,11 +249,11 @@ fn type_class(kind: EntryType) -> &'static str {
     }
 }
 
-fn type_label(e: &Entry) -> &'static str {
+fn type_label(t: &'static Strings, e: &Entry) -> &'static str {
     match e.kind {
-        EntryType::Misc if !e.eprint.is_empty() => "预印本",
-        EntryType::Misc => "其他",
-        kind => kind.label(),
+        EntryType::Misc if !e.eprint.is_empty() => t.preprint,
+        EntryType::Misc => t.other,
+        kind => (t.entry_type)(kind),
     }
 }
 
