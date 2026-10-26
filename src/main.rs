@@ -6,6 +6,7 @@ mod export;
 mod i18n;
 mod metadata;
 mod model;
+mod settings;
 mod storage;
 mod table;
 

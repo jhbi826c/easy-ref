@@ -4,6 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>easy-ref</title>
+    <script>
+      try {
+        var theme = JSON.parse(localStorage.getItem("easy-ref.theme"));
+        if (theme === "Light" || theme === "Dark") document.documentElement.dataset.theme = theme.toLowerCase();
+      } catch (e) {}
+    </script>
     <link data-trunk rel="css" href="style.css" />
     <link data-trunk rel="rust" data-wasm-opt="z" />
   </head>

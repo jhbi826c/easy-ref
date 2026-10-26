@@ -5,6 +5,7 @@ use crate::export::{Export, ExportDialog};
 use crate::i18n::{Lang, Strings};
 use crate::metadata;
 use crate::model::{AddOutcome, Entry, EntryType, Library, View};
+use crate::settings::{SettingsDialog, Theme};
 use crate::storage::{self, new_id, now};
 use crate::table::{EntryTable, SortColumn};
 use leptos::ev::{DragEvent, KeyboardEvent};
@@ -45,6 +46,8 @@ pub struct AppState {
     pub queue: RwSignal<VecDeque<(String, Option<String>)>>,
     pub busy: RwSignal<bool>,
     pub lang: RwSignal<Lang>,
+    pub theme: RwSignal<Theme>,
+    pub settings_open: RwSignal<bool>,
 }
 
 impl AppState {
@@ -115,6 +118,8 @@ pub fn App() -> impl IntoView {
         queue: RwSignal::new(VecDeque::new()),
         busy: RwSignal::new(false),
         lang: RwSignal::new(initial_lang()),
+        theme: RwSignal::new(storage::load(storage::THEME_KEY)),
+        settings_open: RwSignal::new(false),
     };
     provide_context(state);
 
@@ -127,6 +132,16 @@ pub fn App() -> impl IntoView {
         }
     });
     Effect::new(move |_| {
+        let theme = state.theme.get();
+        storage::save(storage::THEME_KEY, &theme);
+        if let Some(root) = document().document_element() {
+            let _ = match theme.attr() {
+                Some(value) => root.set_attribute("data-theme", value),
+                None => root.remove_attribute("data-theme"),
+            };
+        }
+    });
+    Effect::new(move |_| {
         state.view.track();
         state.selected.set(HashSet::new());
     });
@@ -136,6 +151,8 @@ pub fn App() -> impl IntoView {
         if ev.key() == "Escape" {
             if state.exporting.get_untracked().is_some() {
                 state.exporting.set(None);
+            } else if state.settings_open.get_untracked() {
+                state.settings_open.set(false);
             } else {
                 state.editing.set(None);
             }
@@ -152,6 +169,9 @@ pub fn App() -> impl IntoView {
             </main>
             {move || editing.get().map(|id| view! { <EntryEditor id=id /> })}
             {move || state.exporting.get().map(|export| view! { <ExportDialog export=export /> })}
+            <Show when=move || state.settings_open.get()>
+                <SettingsDialog />
+            </Show>
             <Notices />
         </div>
     }
@@ -163,23 +183,14 @@ fn initial_lang() -> Lang {
 }
 
 #[component]
-fn LangSwitch() -> impl IntoView {
+fn SidebarFooter() -> impl IntoView {
     let state = expect_context::<AppState>();
     view! {
-        <div class="lang-switch">
-            {Lang::ALL
-                .into_iter()
-                .map(|lang| {
-                    view! {
-                        <button
-                            class:active=move || state.lang.get() == lang
-                            on:click=move |_| state.lang.set(lang)
-                        >
-                            {lang.name()}
-                        </button>
-                    }
-                })
-                .collect_view()}
+        <div class="sidebar-footer">
+            <button class="nav-item footer-button" on:click=move |_| state.settings_open.set(true)>
+                <IconSettings />
+                <span class="name">{move || state.t().settings}</span>
+            </button>
         </div>
     }
 }
@@ -241,9 +252,7 @@ fn Sidebar() -> impl IntoView {
             <Show when=move || state.lib.with(|l| l.collections.is_empty()) && !creating.get()>
                 <p class="hint">{move || state.t().collections_hint}</p>
             </Show>
-            <div class="sidebar-footer">
-                <LangSwitch />
-            </div>
+            <SidebarFooter />
         </nav>
     }
 }
@@ -346,6 +355,16 @@ fn IconFolder() -> impl IntoView {
     view! {
         <svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+        </svg>
+    }
+}
+
+#[component]
+fn IconSettings() -> impl IntoView {
+    view! {
+        <svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+            <circle cx="12" cy="12" r="3" />
         </svg>
     }
 }

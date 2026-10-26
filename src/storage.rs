@@ -3,6 +3,7 @@ use serde::{Serialize, de::DeserializeOwned};
 pub const LIBRARY_KEY: &str = "easy-ref.library";
 pub const SYNC_KEY: &str = "easy-ref.sync";
 pub const LANG_KEY: &str = "easy-ref.lang";
+pub const THEME_KEY: &str = "easy-ref.theme";
 
 fn local_storage() -> Option<web_sys::Storage> {
     web_sys::window()?.local_storage().ok().flatten()

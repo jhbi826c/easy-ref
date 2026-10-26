@@ -1,6 +1,7 @@
 use crate::bibtex::Problem;
 use crate::metadata::LookupError;
 use crate::model::EntryType;
+use crate::settings::Theme;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -119,6 +120,11 @@ pub struct Strings {
     pub copy_failed: &'static str,
     pub download: fn(&str) -> String,
     pub download_failed: &'static str,
+
+    pub settings: &'static str,
+    pub appearance: &'static str,
+    pub language: &'static str,
+    pub theme_name: fn(Theme) -> &'static str,
 }
 
 pub const ZH: Strings = Strings {
@@ -219,6 +225,15 @@ pub const ZH: Strings = Strings {
     copy_failed: "复制失败，请手动选择文本复制",
     download: |name| format!("下载 {name}"),
     download_failed: "下载失败",
+
+    settings: "设置",
+    appearance: "外观",
+    language: "语言",
+    theme_name: |t| match t {
+        Theme::System => "跟随系统",
+        Theme::Light => "浅色",
+        Theme::Dark => "深色",
+    },
 };
 
 pub const EN: Strings = Strings {
@@ -319,6 +334,15 @@ pub const EN: Strings = Strings {
     copy_failed: "Copy failed, please select the text and copy it manually",
     download: |name| format!("Download {name}"),
     download_failed: "Download failed",
+
+    settings: "Settings",
+    appearance: "Appearance",
+    language: "Language",
+    theme_name: |t| match t {
+        Theme::System => "System",
+        Theme::Light => "Light",
+        Theme::Dark => "Dark",
+    },
 };
 
 #[cfg(test)]
