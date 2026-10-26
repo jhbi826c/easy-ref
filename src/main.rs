@@ -1,3 +1,5 @@
+mod doi;
+mod metadata;
 mod model;
 mod storage;
 
