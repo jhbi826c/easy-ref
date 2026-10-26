@@ -7,6 +7,7 @@ use crate::metadata;
 use crate::model::{AddOutcome, Entry, EntryType, Library, View};
 use crate::settings::{SettingsDialog, Theme};
 use crate::storage::{self, new_id, now};
+use crate::sync::{self, SyncConfig, SyncError};
 use crate::table::{EntryTable, SortColumn};
 use leptos::ev::{DragEvent, KeyboardEvent};
 use leptos::prelude::*;
@@ -48,9 +49,64 @@ pub struct AppState {
     pub lang: RwSignal<Lang>,
     pub theme: RwSignal<Theme>,
     pub settings_open: RwSignal<bool>,
+    pub sync_config: RwSignal<SyncConfig>,
+    pub sync_status: RwSignal<SyncStatus>,
+    /// Library as last stored remotely.
+    pub synced: RwSignal<Option<Library>>,
+    sync_again: RwSignal<bool>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum SyncStatus {
+    Idle,
+    Syncing,
+    Done(f64),
+    Failed(SyncError),
 }
 
 impl AppState {
+    pub fn sync_configured(&self) -> bool {
+        self.sync_config.with(SyncConfig::is_configured)
+    }
+
+    pub fn has_unsynced_changes(&self) -> bool {
+        self.sync_configured() && self.synced.with(|s| self.lib.with(|l| s.as_ref() != Some(l)))
+    }
+
+    pub fn start_sync(self) {
+        if self.sync_status.get_untracked() == SyncStatus::Syncing {
+            self.sync_again.set(true);
+            return;
+        }
+        let config = self.sync_config.get_untracked();
+        if !config.is_configured() {
+            return;
+        }
+        self.sync_status.set(SyncStatus::Syncing);
+        spawn_local(async move {
+            let snapshot = self.lib.get_untracked();
+            match sync::sync(&config, &snapshot).await {
+                Ok(merged) => {
+                    let current = self.lib.get_untracked();
+                    let next = sync::merge(&current, &merged);
+                    self.synced.set(Some(merged));
+                    if next != current {
+                        self.lib.set(next);
+                    }
+                    self.sync_status.set(SyncStatus::Done(now()));
+                }
+                Err(e) => {
+                    self.notify(Level::Error, (self.t_untracked().sync_error)(&e));
+                    self.sync_status.set(SyncStatus::Failed(e));
+                }
+            }
+            if self.sync_again.get_untracked() {
+                self.sync_again.set(false);
+                self.start_sync();
+            }
+        });
+    }
+
     pub fn t(&self) -> &'static Strings {
         self.lang.get().strings()
     }
@@ -120,8 +176,29 @@ pub fn App() -> impl IntoView {
         lang: RwSignal::new(initial_lang()),
         theme: RwSignal::new(storage::load(storage::THEME_KEY)),
         settings_open: RwSignal::new(false),
+        sync_config: RwSignal::new(storage::load(storage::SYNC_KEY)),
+        sync_status: RwSignal::new(SyncStatus::Idle),
+        synced: RwSignal::new(None),
+        sync_again: RwSignal::new(false),
     };
     provide_context(state);
+
+    let generation = Arc::new(AtomicU64::new(0));
+    Effect::new(move |_| {
+        let auto = state.sync_config.with(|c| c.auto);
+        if auto && state.has_unsynced_changes() {
+            let current = generation.fetch_add(1, Ordering::Relaxed) + 1;
+            let generation = generation.clone();
+            set_timeout(
+                move || {
+                    if generation.load(Ordering::Relaxed) == current {
+                        state.start_sync();
+                    }
+                },
+                Duration::from_secs(2),
+            );
+        }
+    });
 
     Effect::new(move |_| state.lib.with(|l| storage::save(storage::LIBRARY_KEY, l)));
     Effect::new(move |_| {
@@ -183,10 +260,51 @@ fn initial_lang() -> Lang {
 }
 
 #[component]
+fn SyncIndicator() -> impl IntoView {
+    let state = expect_context::<AppState>();
+    let t = move || state.t();
+    let label = move || match state.sync_status.get() {
+        SyncStatus::Syncing => t().syncing.to_string(),
+        SyncStatus::Failed(_) => t().sync_failed.to_string(),
+        _ if state.has_unsynced_changes() => t().unsynced.to_string(),
+        SyncStatus::Done(time) => (t().synced_at)(&format_time(time)),
+        SyncStatus::Idle => t().sync_now.to_string(),
+    };
+    let class = move || {
+        let kind = match state.sync_status.get() {
+            SyncStatus::Syncing => "syncing",
+            SyncStatus::Failed(_) => "error",
+            _ if state.has_unsynced_changes() => "dirty",
+            SyncStatus::Done(_) => "ok",
+            SyncStatus::Idle => "",
+        };
+        format!("nav-item footer-button sync {kind}")
+    };
+    let detail = move || match state.sync_status.get() {
+        SyncStatus::Failed(e) => (t().sync_error)(&e),
+        _ => t().sync_now.to_string(),
+    };
+    view! {
+        <Show when=move || state.sync_configured()>
+            <button class=class title=detail on:click=move |_| state.start_sync()>
+                <span class="dot"></span>
+                <span class="name">{label}</span>
+            </button>
+        </Show>
+    }
+}
+
+fn format_time(ms: f64) -> String {
+    let d = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(ms));
+    format!("{:02}:{:02}", d.get_hours(), d.get_minutes())
+}
+
+#[component]
 fn SidebarFooter() -> impl IntoView {
     let state = expect_context::<AppState>();
     view! {
         <div class="sidebar-footer">
+            <SyncIndicator />
             <button class="nav-item footer-button" on:click=move |_| state.settings_open.set(true)>
                 <IconSettings />
                 <span class="name">{move || state.t().settings}</span>

@@ -8,6 +8,7 @@ mod metadata;
 mod model;
 mod settings;
 mod storage;
+mod sync;
 mod table;
 
 fn main() {

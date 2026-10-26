@@ -2,6 +2,7 @@ use crate::bibtex::Problem;
 use crate::metadata::LookupError;
 use crate::model::EntryType;
 use crate::settings::Theme;
+use crate::sync::SyncError;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,6 +126,25 @@ pub struct Strings {
     pub appearance: &'static str,
     pub language: &'static str,
     pub theme_name: fn(Theme) -> &'static str,
+
+    pub sync_section: &'static str,
+    pub sync_intro: &'static str,
+    pub field_token: &'static str,
+    pub token_hint: &'static str,
+    pub create_token: &'static str,
+    pub field_repo: &'static str,
+    pub field_branch: &'static str,
+    pub field_path: &'static str,
+    pub auto_sync: &'static str,
+    pub save_and_sync: &'static str,
+    pub clear_token: &'static str,
+    pub sync_now: &'static str,
+    pub syncing: &'static str,
+    pub sync_done: &'static str,
+    pub synced_at: fn(&str) -> String,
+    pub unsynced: &'static str,
+    pub sync_failed: &'static str,
+    pub sync_error: fn(&SyncError) -> String,
 }
 
 pub const ZH: Strings = Strings {
@@ -234,6 +254,34 @@ pub const ZH: Strings = Strings {
         Theme::Light => "浅色",
         Theme::Dark => "深色",
     },
+
+    sync_section: "GitHub 同步",
+    sync_intro: "文献库会保存为 GitHub 仓库中的一个 JSON 文件，用于多设备同步。建议单独建一个私有仓库。",
+    field_token: "访问令牌（token）",
+    token_hint: "请使用 fine-grained token：只授权这个仓库，Contents 权限设为 Read and write。Token 只保存在当前浏览器中。",
+    create_token: "创建 token ↗",
+    field_repo: "仓库（owner/repo）",
+    field_branch: "分支",
+    field_path: "文件路径",
+    auto_sync: "修改后自动同步",
+    save_and_sync: "保存并同步",
+    clear_token: "清除 token",
+    sync_now: "立即同步",
+    syncing: "同步中…",
+    sync_done: "同步完成",
+    synced_at: |time| format!("已同步 {time}"),
+    unsynced: "有未同步的更改",
+    sync_failed: "同步失败",
+    sync_error: |e| match e {
+        SyncError::NotConfigured => "请先在设置中填写 token 和仓库".into(),
+        SyncError::Unauthorized => "同步失败：token 无效或已过期".into(),
+        SyncError::Forbidden(m) => format!("同步失败：没有该仓库的写入权限（需要 Contents 读写）。{m}"),
+        SyncError::NotFound => "同步失败：找不到仓库或分支，或 token 未授权该仓库".into(),
+        SyncError::Conflict => "同步失败：远端文件一直在变化，请稍后重试".into(),
+        SyncError::Network(m) => format!("同步失败：网络错误 {m}"),
+        SyncError::Http(code, m) => format!("同步失败：GitHub 返回 HTTP {code} {m}"),
+        SyncError::InvalidFile(m) => format!("同步失败：远端文件不是有效的 easy-ref 文献库（{m}）"),
+    },
 };
 
 pub const EN: Strings = Strings {
@@ -342,6 +390,34 @@ pub const EN: Strings = Strings {
         Theme::System => "System",
         Theme::Light => "Light",
         Theme::Dark => "Dark",
+    },
+
+    sync_section: "GitHub sync",
+    sync_intro: "The library is stored as a JSON file in a GitHub repository so it can sync across devices. A dedicated private repository is recommended.",
+    field_token: "Access token",
+    token_hint: "Use a fine-grained token limited to this repository, with Contents set to Read and write. The token is stored only in this browser.",
+    create_token: "Create a token ↗",
+    field_repo: "Repository (owner/repo)",
+    field_branch: "Branch",
+    field_path: "File path",
+    auto_sync: "Sync automatically after changes",
+    save_and_sync: "Save and sync",
+    clear_token: "Remove token",
+    sync_now: "Sync now",
+    syncing: "Syncing…",
+    sync_done: "Sync complete",
+    synced_at: |time| format!("Synced {time}"),
+    unsynced: "Unsynced changes",
+    sync_failed: "Sync failed",
+    sync_error: |e| match e {
+        SyncError::NotConfigured => "Set a token and repository in Settings first".into(),
+        SyncError::Unauthorized => "Sync failed: the token is invalid or expired".into(),
+        SyncError::Forbidden(m) => format!("Sync failed: no write access to the repository (Contents read/write needed). {m}"),
+        SyncError::NotFound => "Sync failed: repository or branch not found, or the token cannot access it".into(),
+        SyncError::Conflict => "Sync failed: the remote file kept changing, try again later".into(),
+        SyncError::Network(m) => format!("Sync failed: network error {m}"),
+        SyncError::Http(code, m) => format!("Sync failed: GitHub returned HTTP {code} {m}"),
+        SyncError::InvalidFile(m) => format!("Sync failed: the remote file is not a valid easy-ref library ({m})"),
     },
 };
 

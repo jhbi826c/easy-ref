@@ -325,7 +325,7 @@ impl Library {
     }
 }
 
-fn alpha_suffix(mut n: usize) -> String {
+pub fn alpha_suffix(mut n: usize) -> String {
     let mut s = Vec::new();
     loop {
         s.push(b'a' + (n % 26) as u8);
