@@ -4,6 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>easy-ref</title>
+    <meta name="description" content="Reference manager with BibTeX export" />
+    <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1d2027" media="(prefers-color-scheme: dark)" />
+    <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
     <script>
@@ -11,9 +15,12 @@
         var theme = JSON.parse(localStorage.getItem("easy-ref.theme"));
         if (theme === "Light" || theme === "Dark") document.documentElement.dataset.theme = theme.toLowerCase();
       } catch (e) {}
+      if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
     </script>
     <link data-trunk rel="css" href="style.css" />
     <link data-trunk rel="copy-dir" href="icons" />
+    <link data-trunk rel="copy-file" href="manifest.webmanifest" />
+    <link data-trunk rel="copy-file" href="sw.js" />
     <link data-trunk rel="rust" data-wasm-opt="z" />
   </head>
   <body></body>
