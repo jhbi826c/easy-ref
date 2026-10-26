@@ -51,6 +51,7 @@ pub struct Strings {
     pub collection_name: &'static str,
     pub collections_hint: &'static str,
     pub rename_hint: &'static str,
+    pub rename: &'static str,
     pub delete_collection: &'static str,
     pub confirm_delete_collection: fn(&str) -> String,
 
@@ -158,6 +159,7 @@ pub const ZH: Strings = Strings {
     collection_name: "目录名称",
     collections_hint: "点 + 新建目录，把条目拖到目录上即可加入。",
     rename_hint: "双击重命名",
+    rename: "重命名",
     delete_collection: "删除目录",
     confirm_delete_collection: |name| format!("删除目录「{name}」？条目本身不会被删除。"),
 
@@ -295,6 +297,7 @@ pub const EN: Strings = Strings {
     collection_name: "Collection name",
     collections_hint: "Click + to create a collection, then drag entries onto it.",
     rename_hint: "Double-click to rename",
+    rename: "Rename",
     delete_collection: "Delete collection",
     confirm_delete_collection: |name| format!("Delete collection \"{name}\"? Its entries stay in the library."),
 

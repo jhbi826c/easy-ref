@@ -204,7 +204,8 @@ button.icon:hover {
   display: none;
 }
 
-.nav-item.collection:hover .actions {
+.nav-item.collection:hover .actions,
+.nav-item.collection.active .actions {
   display: inline-flex;
 }
 
@@ -819,8 +820,7 @@ button:disabled {
   }
 
   .section-title span,
-  .hint,
-  .nav-item .actions {
+  .hint {
     display: none !important;
   }
 

@@ -477,6 +477,16 @@ fn CollectionItem(id: String, name: String, count: usize, renaming: RwSignal<Opt
                             {name}
                         </span>
                         <span class="actions">
+                            <button
+                                class="icon"
+                                title=move || state.t().rename
+                                on:click=move |ev: leptos::ev::MouseEvent| {
+                                    ev.stop_propagation();
+                                    renaming.set(Some(id.get_value()));
+                                }
+                            >
+                                "✎"
+                            </button>
                             <button class="icon" title=move || state.t().export_bibtex on:click=export>
                                 "⇩"
                             </button>
