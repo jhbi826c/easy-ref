@@ -12,6 +12,7 @@ A small reference manager written in Rust (Leptos + WebAssembly). It runs as a s
 - Citation keys are first author's last name + year + venue abbreviation, e.g. `He2016CVPR`, `Ren2017TPAMI`, `Vaswani2017arXiv`
 - Export checks for missing fields and duplicate keys, escapes special characters and accents, and protects acronyms in titles, so common styles (plain, IEEEtran, ACM, …) compile without warnings
 - Chinese and English UI; light, dark or system theme
+- Installable as an app (Settings → Install app, or the browser's install option) and usable offline; DOI lookup and sync need a connection
 
 ## Development
 
@@ -44,3 +45,7 @@ Each sync pulls, merges and pushes: the newer edit of an entry wins, deletions p
 - IEEE Xplore `ieeexplore.ieee.org/document/…` links contain no DOI; copy the DOI from the page instead
 - Papers without a DOI (NeurIPS, ICML, ICLR, …) can be added by arXiv ID or created manually
 - If two devices change the members of the same collection at the same time, the later change wins
+
+## Credits
+
+Icons are based on [Lucide](https://lucide.dev) (ISC license).
