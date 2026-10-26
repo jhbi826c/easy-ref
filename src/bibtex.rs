@@ -534,42 +534,6 @@ mod tests {
         assert_eq!(problems, [missing.clone(), missing, Problem::DuplicateKey("k".into())]);
     }
 
-    /// Used by `scripts/check-bib.sh`.
-    #[test]
-    #[ignore]
-    fn write_fixture_bib() {
-        let mut entries = crate::metadata::tests::fixture_entries();
-        entries.push(Entry {
-            kind: EntryType::Article,
-            title: "Ünïcode & 50% of {Braces}: α-tests for R&D_1 #hash ~x^y <a|b> — “quoted” …".into(),
-            authors: vec![
-                person("Gödel", "Kurt"),
-                Person {
-                    family: "Society for Science and Technology".into(),
-                    literal: true,
-                    ..Default::default()
-                },
-                person("Łukasiewicz", "Jan"),
-                person("Dvořák", "Antonín"),
-            ],
-            year: Some(1931),
-            month: Some(12),
-            venue: "Monatshefte für Mathematik & Physik".into(),
-            venue_short: "MfMP".into(),
-            volume: "38".into(),
-            pages: "173–198".into(),
-            doi: "10.1007/BF01700692".into(),
-            ..Default::default()
-        });
-        for e in &mut entries {
-            e.key = cite_key(e);
-        }
-        let refs: Vec<&Entry> = entries.iter().collect();
-        assert!(check(&refs).is_empty(), "{:?}", check(&refs));
-        let path = std::env::var("BIB_OUT").expect("set BIB_OUT");
-        std::fs::write(path, to_bibtex(&refs)).unwrap();
-    }
-
     #[test]
     fn accent_table_is_consistent() {
         for (cmd, chars, bases) in ACCENTS {

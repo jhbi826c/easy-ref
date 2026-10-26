@@ -22,26 +22,16 @@
           extensions = [ "rust-src" "rust-analyzer" "clippy" "rustfmt" ];
           targets = [ "wasm32-unknown-unknown" ];
         };
-
-        # Must match the wasm-bindgen version pinned in Cargo.toml.
-        wasm-bindgen-cli = pkgs.wasm-bindgen-cli;
-
-        webTools = [
-          rustToolchain
-          pkgs.trunk
-          wasm-bindgen-cli
-          pkgs.binaryen
-        ];
       in
       {
         devShells.default = pkgs.mkShell {
-          packages = webTools ++ [
-            (pkgs.texliveSmall.withPackages (ps: [ ps.ieeetran ps.acmart ]))
+          packages = [
+            rustToolchain
+            pkgs.trunk
+            # Must match the wasm-bindgen version pinned in Cargo.toml.
+            pkgs.wasm-bindgen-cli
+            pkgs.binaryen
           ];
-        };
-
-        devShells.ci = pkgs.mkShell {
-          packages = webTools;
         };
       });
 }

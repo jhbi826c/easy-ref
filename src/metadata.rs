@@ -557,19 +557,8 @@ fn initials(venue: &str) -> String {
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use super::*;
-
-    const FIXTURES: [&str; 10] = [
-        "cvpr", "tpami", "chi", "cacm", "eccv", "naacl", "acl", "tog", "nature", "access",
-    ];
-
-    pub fn fixture_entries() -> Vec<Entry> {
-        let mut entries: Vec<Entry> = FIXTURES.iter().map(|n| crossref(n)).collect();
-        let json: Value = serde_json::from_str(include_str!("../tests/fixtures/datacite-arxiv.json")).unwrap();
-        entries.push(from_datacite(&json["data"]["attributes"], "10.48550/arXiv.1706.03762"));
-        entries
-    }
 
     fn crossref(name: &str) -> Entry {
         let raw = match name {
