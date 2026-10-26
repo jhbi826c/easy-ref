@@ -541,7 +541,7 @@ fn acl_venue(doi: &str) -> Option<String> {
 
 const ROMAN: [&str; 10] = ["II", "III", "IV", "VI", "VII", "VIII", "IX", "XI", "XII", "XIII"];
 
-fn is_acronym(word: &str) -> bool {
+pub fn is_acronym(word: &str) -> bool {
     let upper = word.chars().filter(|c| c.is_uppercase()).count();
     upper >= 2 && !ROMAN.contains(&word) && word.chars().all(|c| c.is_uppercase() || c.is_ascii_digit())
 }

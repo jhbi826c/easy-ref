@@ -322,33 +322,54 @@ fn accent_table() -> &'static HashMap<char, (String, String)> {
     })
 }
 
+const MATH: [(char, &str); 24] = [
+    ('α', "\\alpha"),
+    ('β', "\\beta"),
+    ('γ', "\\gamma"),
+    ('δ', "\\delta"),
+    ('ε', "\\epsilon"),
+    ('θ', "\\theta"),
+    ('λ', "\\lambda"),
+    ('μ', "\\mu"),
+    ('π', "\\pi"),
+    ('σ', "\\sigma"),
+    ('τ', "\\tau"),
+    ('φ', "\\phi"),
+    ('ω', "\\omega"),
+    ('Δ', "\\Delta"),
+    ('Σ', "\\Sigma"),
+    ('Ω', "\\Omega"),
+    ('×', "\\times"),
+    ('±', "\\pm"),
+    ('≤', "\\leq"),
+    ('≥', "\\geq"),
+    ('≈', "\\approx"),
+    ('→', "\\rightarrow"),
+    ('∞', "\\infty"),
+    ('°', "^\\circ"),
+];
+
 fn math_symbol(c: char) -> Option<&'static str> {
-    Some(match c {
-        'α' => "\\alpha",
-        'β' => "\\beta",
-        'γ' => "\\gamma",
-        'δ' => "\\delta",
-        'ε' => "\\epsilon",
-        'θ' => "\\theta",
-        'λ' => "\\lambda",
-        'μ' => "\\mu",
-        'π' => "\\pi",
-        'σ' => "\\sigma",
-        'τ' => "\\tau",
-        'φ' => "\\phi",
-        'ω' => "\\omega",
-        'Δ' => "\\Delta",
-        'Σ' => "\\Sigma",
-        'Ω' => "\\Omega",
-        '×' => "\\times",
-        '±' => "\\pm",
-        '≤' => "\\leq",
-        '≥' => "\\geq",
-        '≈' => "\\approx",
-        '→' => "\\rightarrow",
-        '∞' => "\\infty",
-        '°' => "^\\circ",
-        _ => return None,
+    MATH.iter().find(|(m, _)| *m == c).map(|(_, tex)| *tex)
+}
+
+/// `\'` + `e` -> `é`, `\v` + `s` -> `š`.
+pub fn compose_accent(command: &str, base: char) -> Option<char> {
+    let (_, chars, bases) = ACCENTS.iter().find(|(cmd, _, _)| *cmd == command)?;
+    let pos = bases.chars().position(|b| b == base)?;
+    chars.chars().nth(pos)
+}
+
+/// Character for a control word such as `ss`, `L` or `alpha`.
+pub fn command_char(name: &str) -> Option<char> {
+    let letter = LETTERS
+        .iter()
+        .find(|(_, tex, _)| tex.strip_prefix("{\\").and_then(|t| t.strip_suffix('}')) == Some(name))
+        .map(|(c, _, _)| *c);
+    letter.or_else(|| {
+        MATH.iter()
+            .find(|(_, tex)| tex.strip_prefix('\\') == Some(name))
+            .map(|(c, _)| *c)
     })
 }
 

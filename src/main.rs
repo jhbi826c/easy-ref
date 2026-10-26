@@ -1,4 +1,5 @@
 mod app;
+mod bibparse;
 mod bibtex;
 mod doi;
 mod editor;
