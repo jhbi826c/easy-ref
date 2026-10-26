@@ -13,7 +13,8 @@ self.addEventListener("fetch", (event) => {
 async function networkFirst(request) {
   const cache = await caches.open(CACHE);
   try {
-    const response = await fetch(request);
+    // Revalidate so a new deploy is picked up on the next launch.
+    const response = await fetch(request.url, { cache: "no-cache", credentials: "same-origin" });
     if (response.ok) {
       await cache.put(self.registration.scope, response.clone());
       await prune(cache, await response.clone().text());
