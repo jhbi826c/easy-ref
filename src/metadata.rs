@@ -37,7 +37,13 @@ async fn fetch_json(url: &str) -> Result<Option<Value>, LookupError> {
         }
         match gloo_net::http::Request::get(url).send().await {
             Ok(resp) => match resp.status() {
-                200 => return resp.json::<Value>().await.map(Some).map_err(|e| LookupError::Parse(e.to_string())),
+                200 => {
+                    return resp
+                        .json::<Value>()
+                        .await
+                        .map(Some)
+                        .map_err(|e| LookupError::Parse(e.to_string()));
+                }
                 404 => return Ok(None),
                 429 | 500..=599 => last_error = format!("HTTP {}", resp.status()),
                 code => return Err(LookupError::Http(code)),
@@ -61,7 +67,13 @@ fn encode_doi(doi: &str) -> String {
 }
 
 pub fn from_crossref(msg: &Value, requested_doi: &str) -> Entry {
-    let first = |key: &str| msg[key].get(0).and_then(Value::as_str).map(clean_text).unwrap_or_default();
+    let first = |key: &str| {
+        msg[key]
+            .get(0)
+            .and_then(Value::as_str)
+            .map(clean_text)
+            .unwrap_or_default()
+    };
     let text = |v: &Value| v.as_str().map(clean_text).unwrap_or_default();
 
     let mut title = first("title");
@@ -110,7 +122,11 @@ pub fn from_crossref(msg: &Value, requested_doi: &str) -> Entry {
         publisher = institution.clone();
     }
     if kind == EntryType::Misc && venue.is_empty() {
-        venue = if institution.is_empty() { publisher.clone() } else { institution };
+        venue = if institution.is_empty() {
+            publisher.clone()
+        } else {
+            institution
+        };
     }
 
     let mut doi = text(&msg["DOI"]);
@@ -185,7 +201,11 @@ pub fn from_datacite(attrs: &Value, requested_doi: &str) -> Entry {
     };
 
     let arxiv_id = doi::arxiv_id_from_doi(requested_doi).map(str::to_string).or_else(|| {
-        attrs["identifiers"].as_array()?.iter().find(|i| i["identifierType"] == "arXiv").map(|i| text(&i["identifier"]))
+        attrs["identifiers"]
+            .as_array()?
+            .iter()
+            .find(|i| i["identifierType"] == "arXiv")
+            .map(|i| text(&i["identifier"]))
     });
     if let Some(id) = arxiv_id.filter(|_| publisher.eq_ignore_ascii_case("arxiv")) {
         entry.kind = EntryType::Misc;
@@ -205,7 +225,10 @@ pub fn from_datacite(attrs: &Value, requested_doi: &str) -> Entry {
         .as_str()
         .and_then(EntryType::from_bibtex_name)
         .unwrap_or(EntryType::Misc);
-    entry.venue = attrs["container"]["title"].as_str().map(clean_text).unwrap_or_else(|| publisher.clone());
+    entry.venue = attrs["container"]["title"]
+        .as_str()
+        .map(clean_text)
+        .unwrap_or_else(|| publisher.clone());
     entry.venue_short = venue_abbrev(&entry.venue, None, requested_doi);
     entry.publisher = publisher;
     entry
@@ -215,9 +238,18 @@ fn crossref_person(v: &Value) -> Option<Person> {
     let get = |k: &str| v[k].as_str().map(clean_text).unwrap_or_default();
     let (family, given, name) = (get("family"), get("given"), get("name"));
     if !family.is_empty() {
-        Some(Person { family, given, suffix: get("suffix"), literal: false })
+        Some(Person {
+            family,
+            given,
+            suffix: get("suffix"),
+            literal: false,
+        })
     } else if !name.is_empty() {
-        Some(Person { family: name, literal: true, ..Default::default() })
+        Some(Person {
+            family: name,
+            literal: true,
+            ..Default::default()
+        })
     } else {
         None
     }
@@ -227,10 +259,18 @@ fn datacite_person(v: &Value) -> Option<Person> {
     let get = |k: &str| v[k].as_str().map(clean_text).unwrap_or_default();
     let (family, given, name) = (get("familyName"), get("givenName"), get("name"));
     if v["nameType"] == "Organizational" {
-        return (!name.is_empty()).then(|| Person { family: name, literal: true, ..Default::default() });
+        return (!name.is_empty()).then(|| Person {
+            family: name,
+            literal: true,
+            ..Default::default()
+        });
     }
     if !family.is_empty() {
-        return Some(Person { family, given, ..Default::default() });
+        return Some(Person {
+            family,
+            given,
+            ..Default::default()
+        });
     }
     Person::from_line(&name)
 }
@@ -238,7 +278,11 @@ fn datacite_person(v: &Value) -> Option<Person> {
 fn date_parts(v: &Value) -> Option<(Option<i32>, Option<u8>)> {
     let parts = v["date-parts"].get(0)?;
     let year = parts.get(0)?.as_i64()? as i32;
-    let month = parts.get(1).and_then(Value::as_i64).filter(|m| (1..=12).contains(m)).map(|m| m as u8);
+    let month = parts
+        .get(1)
+        .and_then(Value::as_i64)
+        .filter(|m| (1..=12).contains(m))
+        .map(|m| m as u8);
     Some((Some(year), month))
 }
 
@@ -259,7 +303,12 @@ fn split_containers(titles: &[String]) -> (String, String) {
         _ => {
             let is_series = |t: &String| SERIES_PREFIXES.iter().any(|p| t.starts_with(p));
             let series = titles.iter().find(|t| is_series(t)).cloned().unwrap_or_default();
-            let book = titles.iter().rev().find(|t| !is_series(t)).cloned().unwrap_or_else(|| titles[0].clone());
+            let book = titles
+                .iter()
+                .rev()
+                .find(|t| !is_series(t))
+                .cloned()
+                .unwrap_or_else(|| titles[0].clone());
             (book, series)
         }
     }
@@ -270,7 +319,10 @@ const PUBLISHER_ADDRESSES: [(&str, &str); 13] = [
     ("acm", "New York, NY, USA"),
     ("ieee computer society", "Los Alamitos, CA, USA"),
     ("ieee", "Piscataway, NJ, USA"),
-    ("institute of electrical and electronics engineers", "Piscataway, NJ, USA"),
+    (
+        "institute of electrical and electronics engineers",
+        "Piscataway, NJ, USA",
+    ),
     ("springer international publishing", "Cham"),
     ("springer berlin heidelberg", "Berlin, Heidelberg"),
     ("springer nature singapore", "Singapore"),
@@ -291,7 +343,9 @@ pub fn publisher_address(publisher: &str) -> &'static str {
 }
 
 fn looks_like_proceedings(title: &str) -> bool {
-    ["Proceedings", "Conference", "Workshop", "Symposium"].iter().any(|w| title.contains(w))
+    ["Proceedings", "Conference", "Workshop", "Symposium"]
+        .iter()
+        .any(|w| title.contains(w))
 }
 
 /// `Computation and Language (cs.CL)` -> `cs.CL`.
@@ -355,8 +409,9 @@ fn decode_entities(s: &str) -> String {
 }
 
 const PUBLISHERS: [&str; 9] = ["IEEE", "ACM", "CVF", "SIAM", "IAPR", "IFIP", "IET", "AAAS", "SPIE"];
-const STOPWORDS: [&str; 14] =
-    ["of", "the", "on", "and", "for", "in", "a", "an", "to", "at", "with", "&", "de", "und"];
+const STOPWORDS: [&str; 14] = [
+    "of", "the", "on", "and", "for", "in", "a", "an", "to", "at", "with", "&", "de", "und",
+];
 
 const KNOWN_VENUES: [(&str, &str); 8] = [
     ("acm transactions on graphics", "TOG"),
@@ -380,7 +435,10 @@ pub fn venue_abbrev(venue: &str, event_acronym: Option<&str>, doi: &str) -> Stri
         .or_else(|| parenthesized_acronym(venue))
         .or_else(|| {
             let lower = venue.to_lowercase();
-            KNOWN_VENUES.iter().find(|(name, _)| lower.starts_with(name)).map(|(_, abbr)| abbr.to_string())
+            KNOWN_VENUES
+                .iter()
+                .find(|(name, _)| lower.starts_with(name))
+                .map(|(_, abbr)| abbr.to_string())
         })
         .or_else(|| caps_token(venue))
         .unwrap_or_else(|| initials(venue))
@@ -471,7 +529,9 @@ fn initials(venue: &str) -> String {
         .collect();
     let capitalize = |w: &str| {
         let mut c = w.chars();
-        c.next().map(|f| f.to_uppercase().chain(c).collect::<String>()).unwrap_or_default()
+        c.next()
+            .map(|f| f.to_uppercase().chain(c).collect::<String>())
+            .unwrap_or_default()
     };
     let mut prefix = String::new();
     if words.len() >= 2 && PUBLISHERS.contains(&words[0]) {
@@ -485,7 +545,13 @@ fn initials(venue: &str) -> String {
         [only] => capitalize(only),
         _ => words
             .iter()
-            .map(|w| if is_acronym(w) { w.to_string() } else { w.chars().next().unwrap().to_uppercase().collect() })
+            .map(|w| {
+                if is_acronym(w) {
+                    w.to_string()
+                } else {
+                    w.chars().next().unwrap().to_uppercase().collect()
+                }
+            })
             .collect(),
     }
 }
@@ -494,7 +560,9 @@ fn initials(venue: &str) -> String {
 pub mod tests {
     use super::*;
 
-    const FIXTURES: [&str; 10] = ["cvpr", "tpami", "chi", "cacm", "eccv", "naacl", "acl", "tog", "nature", "access"];
+    const FIXTURES: [&str; 10] = [
+        "cvpr", "tpami", "chi", "cacm", "eccv", "naacl", "acl", "tog", "nature", "access",
+    ];
 
     pub fn fixture_entries() -> Vec<Entry> {
         let mut entries: Vec<Entry> = FIXTURES.iter().map(|n| crossref(n)).collect();
@@ -537,7 +605,11 @@ pub mod tests {
         ];
         for (name, kind, short, year) in cases {
             let e = crossref(name);
-            assert_eq!((e.kind, e.venue_short.as_str(), e.year), (kind, short, Some(year)), "{name}");
+            assert_eq!(
+                (e.kind, e.venue_short.as_str(), e.year),
+                (kind, short, Some(year)),
+                "{name}"
+            );
             assert!(!e.title.is_empty() && !e.authors.is_empty(), "{name}");
         }
     }
@@ -546,11 +618,21 @@ pub mod tests {
     fn crossref_fields() {
         let e = crossref("cvpr");
         assert_eq!(e.title, "Deep Residual Learning for Image Recognition");
-        assert_eq!(e.authors[0], Person { family: "He".into(), given: "Kaiming".into(), ..Default::default() });
+        assert_eq!(
+            e.authors[0],
+            Person {
+                family: "He".into(),
+                given: "Kaiming".into(),
+                ..Default::default()
+            }
+        );
         assert_eq!((e.pages.as_str(), e.month), ("770-778", Some(6)));
         assert_eq!(e.doi, "10.1109/cvpr.2016.90");
         let json: Value = serde_json::from_str(include_str!("../tests/fixtures/crossref-cvpr.json")).unwrap();
-        assert_eq!(from_crossref(&json["message"], "10.1109/CVPR.2016.90").doi, "10.1109/CVPR.2016.90");
+        assert_eq!(
+            from_crossref(&json["message"], "10.1109/CVPR.2016.90").doi,
+            "10.1109/CVPR.2016.90"
+        );
 
         let e = crossref("eccv");
         assert_eq!(e.venue, "Computer Vision – ECCV 2016");
@@ -572,17 +654,40 @@ pub mod tests {
 
     #[test]
     fn cleans_markup() {
-        assert_eq!(clean_text("A <i>novel</i>\n  method &amp; more&#x2014;fast"), "A novel method & more—fast");
+        assert_eq!(
+            clean_text("A <i>novel</i>\n  method &amp; more&#x2014;fast"),
+            "A novel method & more—fast"
+        );
         assert_eq!(clean_text("R&D 5 &lt; 6"), "R&D 5 < 6");
     }
 
     #[test]
     fn abbreviations() {
-        assert_eq!(venue_abbrev("International Journal of Computer Vision", None, ""), "IJCV");
+        assert_eq!(
+            venue_abbrev("International Journal of Computer Vision", None, ""),
+            "IJCV"
+        );
         assert_eq!(venue_abbrev("Journal of Machine Learning Research", None, ""), "JMLR");
-        assert_eq!(venue_abbrev("Proceedings of the AAAI Conference on Artificial Intelligence", None, ""), "AAAI");
-        assert_eq!(venue_abbrev("2019 IEEE/CVF International Conference on Computer Vision (ICCV)", None, ""), "ICCV");
+        assert_eq!(
+            venue_abbrev(
+                "Proceedings of the AAAI Conference on Artificial Intelligence",
+                None,
+                ""
+            ),
+            "AAAI"
+        );
+        assert_eq!(
+            venue_abbrev(
+                "2019 IEEE/CVF International Conference on Computer Vision (ICCV)",
+                None,
+                ""
+            ),
+            "ICCV"
+        );
         assert_eq!(venue_abbrev("x", Some("MM '19"), ""), "MM");
-        assert_eq!(venue_abbrev("x", None, "10.18653/v1/2023.findings-emnlp.1"), "FindingsEMNLP");
+        assert_eq!(
+            venue_abbrev("x", None, "10.18653/v1/2023.findings-emnlp.1"),
+            "FindingsEMNLP"
+        );
     }
 }

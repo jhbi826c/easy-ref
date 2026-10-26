@@ -23,7 +23,13 @@ pub fn ExportDialog(export: Export) -> impl IntoView {
     let filename: String = export
         .name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let filename = StoredValue::new(format!("{filename}.bib"));
     let bib = StoredValue::new(bib);

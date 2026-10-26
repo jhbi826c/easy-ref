@@ -120,13 +120,20 @@ impl AppState {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let id = NEXT.fetch_add(1, Ordering::Relaxed);
         self.notices.update(|n| {
-            n.push(Notice { id, level, text: text.into() });
+            n.push(Notice {
+                id,
+                level,
+                text: text.into(),
+            });
             if n.len() > 4 {
                 n.remove(0);
             }
         });
         let notices = self.notices;
-        set_timeout(move || notices.update(|n| n.retain(|x| x.id != id)), Duration::from_secs(6));
+        set_timeout(
+            move || notices.update(|n| n.retain(|x| x.id != id)),
+            Duration::from_secs(6),
+        );
     }
 
     pub fn current_collection(&self) -> Option<String> {
@@ -139,7 +146,9 @@ impl AppState {
     pub fn view_name(&self) -> String {
         match self.view.get() {
             View::Library => self.t().library.into(),
-            View::Collection(id) => self.lib.with(|l| l.collection(&id).map(|c| c.name.clone()).unwrap_or_default()),
+            View::Collection(id) => self
+                .lib
+                .with(|l| l.collection(&id).map(|c| c.name.clone()).unwrap_or_default()),
         }
     }
 
@@ -147,10 +156,15 @@ impl AppState {
     pub fn export_targets(&self) -> Export {
         let selected: Vec<String> = self.selected.get_untracked().into_iter().collect();
         if !selected.is_empty() {
-            return Export { ids: selected, name: "references".into() };
+            return Export {
+                ids: selected,
+                name: "references".into(),
+            };
         }
         let view = self.view.get_untracked();
-        let ids = self.lib.with_untracked(|l| l.entries_in(&view).iter().map(|e| e.id.clone()).collect());
+        let ids = self
+            .lib
+            .with_untracked(|l| l.entries_in(&view).iter().map(|e| e.id.clone()).collect());
         let name = match view {
             View::Library => "library".into(),
             View::Collection(_) => self.view_name(),
@@ -324,7 +338,13 @@ fn Sidebar() -> impl IntoView {
         state.lib.with(|l| {
             l.collections
                 .iter()
-                .map(|c| (c.id.clone(), c.name.clone(), c.entries.iter().filter(|id| l.entry(id).is_some()).count()))
+                .map(|c| {
+                    (
+                        c.id.clone(),
+                        c.name.clone(),
+                        c.entries.iter().filter(|id| l.entry(id).is_some()).count(),
+                    )
+                })
                 .collect::<Vec<_>>()
         })
     };
@@ -380,7 +400,11 @@ fn CollectionItem(id: String, name: String, count: usize, renaming: RwSignal<Opt
     let state = expect_context::<AppState>();
     let hover = RwSignal::new(false);
     let id = StoredValue::new(id);
-    let is_active = move || state.view.with(|v| matches!(v, View::Collection(c) if *c == id.get_value()));
+    let is_active = move || {
+        state
+            .view
+            .with(|v| matches!(v, View::Collection(c) if *c == id.get_value()))
+    };
     let is_renaming = move || renaming.with(|r| r.as_deref() == Some(id.get_value().as_str()));
 
     let on_drop = move |ev: DragEvent| {
@@ -391,8 +415,13 @@ fn CollectionItem(id: String, name: String, count: usize, renaming: RwSignal<Opt
             return;
         }
         let mut added = 0;
-        state.lib.update(|l| added = l.add_to_collection(&id.get_value(), &ids, now()));
-        state.notify(Level::Ok, (state.t_untracked().added_to_collection)(added, &name_for(state, &id.get_value())));
+        state
+            .lib
+            .update(|l| added = l.add_to_collection(&id.get_value(), &ids, now()));
+        state.notify(
+            Level::Ok,
+            (state.t_untracked().added_to_collection)(added, &name_for(state, &id.get_value())),
+        );
     };
     let rename = move |new_name: Option<String>| {
         renaming.set(None);
@@ -413,9 +442,15 @@ fn CollectionItem(id: String, name: String, count: usize, renaming: RwSignal<Opt
     let export = move |ev: leptos::ev::MouseEvent| {
         ev.stop_propagation();
         let ids = state.lib.with_untracked(|l| {
-            l.entries_in(&View::Collection(id.get_value())).iter().map(|e| e.id.clone()).collect()
+            l.entries_in(&View::Collection(id.get_value()))
+                .iter()
+                .map(|e| e.id.clone())
+                .collect()
         });
-        state.exporting.set(Some(Export { ids, name: name_for(state, &id.get_value()) }));
+        state.exporting.set(Some(Export {
+            ids,
+            name: name_for(state, &id.get_value()),
+        }));
     };
 
     view! {
@@ -488,7 +523,9 @@ fn IconSettings() -> impl IntoView {
 }
 
 fn name_for(state: AppState, id: &str) -> String {
-    state.lib.with_untracked(|l| l.collection(id).map(|c| c.name.clone()).unwrap_or_default())
+    state
+        .lib
+        .with_untracked(|l| l.collection(id).map(|c| c.name.clone()).unwrap_or_default())
 }
 
 #[component]
@@ -574,7 +611,9 @@ fn add_identifiers(state: AppState, input: &str) {
             report_duplicate(state, &existing, target.as_deref());
             continue;
         }
-        let queued = state.queue.with_untracked(|q| q.iter().any(|(d, _)| d.eq_ignore_ascii_case(&doi)));
+        let queued = state
+            .queue
+            .with_untracked(|q| q.iter().any(|(d, _)| d.eq_ignore_ascii_case(&doi)));
         if !queued {
             state.queue.update(|q| q.push_back((doi, target.clone())));
         }
@@ -620,13 +659,17 @@ async fn run_queue(state: AppState) {
 }
 
 fn report_duplicate(state: AppState, id: &str, target: Option<&str>) {
-    let key = state.lib.with_untracked(|l| l.entry(id).map(|e| e.key.clone()).unwrap_or_default());
+    let key = state
+        .lib
+        .with_untracked(|l| l.entry(id).map(|e| e.key.clone()).unwrap_or_default());
     let t = state.t_untracked();
     let Some(cid) = target else {
         return state.notify(Level::Warn, (t.dup_in_library)(&key));
     };
     let mut added = 0;
-    state.lib.update(|l| added = l.add_to_collection(cid, &[id.to_string()], now()));
+    state
+        .lib
+        .update(|l| added = l.add_to_collection(cid, &[id.to_string()], now()));
     if added > 0 {
         state.notify(Level::Ok, (t.dup_added_to_collection)(&key));
     } else {
@@ -651,7 +694,10 @@ fn Toolbar() -> impl IntoView {
         let ids = selection();
         let mut added = 0;
         state.lib.update(|l| added = l.add_to_collection(&cid, &ids, now()));
-        state.notify(Level::Ok, (state.t_untracked().added_to_collection)(added, &name_for(state, &cid)));
+        state.notify(
+            Level::Ok,
+            (state.t_untracked().added_to_collection)(added, &name_for(state, &cid)),
+        );
     };
     let remove_from = move |_| {
         if let Some(cid) = state.current_collection() {

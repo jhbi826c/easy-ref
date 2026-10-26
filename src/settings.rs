@@ -112,7 +112,11 @@ fn SyncSettings() -> impl IntoView {
         state.sync_status.set(SyncStatus::Idle);
     };
 
-    let field = move |label: Label, kind: &'static str, placeholder: &'static str, get: fn(&SyncConfig) -> &String, set: fn(&mut SyncConfig, String)| {
+    let field = move |label: Label,
+                      kind: &'static str,
+                      placeholder: &'static str,
+                      get: fn(&SyncConfig) -> &String,
+                      set: fn(&mut SyncConfig, String)| {
         view! {
             <label class="field">
                 <span>{move || label(t())}</span>

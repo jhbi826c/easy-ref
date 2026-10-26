@@ -15,7 +15,11 @@ impl Lang {
     pub const ALL: [Lang; 2] = [Lang::Zh, Lang::En];
 
     pub fn from_browser(language: &str) -> Lang {
-        if language.to_lowercase().starts_with("zh") { Lang::Zh } else { Lang::En }
+        if language.to_lowercase().starts_with("zh") {
+            Lang::Zh
+        } else {
+            Lang::En
+        }
     }
 
     pub fn name(self) -> &'static str {
@@ -297,7 +301,9 @@ pub const EN: Strings = Strings {
     add_placeholder: "Paste DOIs, links or arXiv IDs (several at once), press Enter",
     add: "Add",
     looking_up: |n| format!("Looking up {n}…"),
-    unrecognized: |raw| format!("Not recognized: {raw} (for IEEE Xplore and similar links, copy the DOI from the page)"),
+    unrecognized: |raw| {
+        format!("Not recognized: {raw} (for IEEE Xplore and similar links, copy the DOI from the page)")
+    },
     lookup_failed: |doi, e| match e {
         LookupError::NotFound => format!("DOI not found: {doi}"),
         LookupError::Failed(msg) => format!("{doi}: request failed (possibly rate limited, try again later): {msg}"),
@@ -412,7 +418,9 @@ pub const EN: Strings = Strings {
     sync_error: |e| match e {
         SyncError::NotConfigured => "Set a token and repository in Settings first".into(),
         SyncError::Unauthorized => "Sync failed: the token is invalid or expired".into(),
-        SyncError::Forbidden(m) => format!("Sync failed: no write access to the repository (Contents read/write needed). {m}"),
+        SyncError::Forbidden(m) => {
+            format!("Sync failed: no write access to the repository (Contents read/write needed). {m}")
+        }
         SyncError::NotFound => "Sync failed: repository or branch not found, or the token cannot access it".into(),
         SyncError::Conflict => "Sync failed: the remote file kept changing, try again later".into(),
         SyncError::Network(m) => format!("Sync failed: network error {m}"),
@@ -437,7 +445,10 @@ mod tests {
     fn formats_messages() {
         assert_eq!((EN.added_n)(1), "Added 1 entry");
         assert_eq!((ZH.added_n)(3), "已添加 3 条");
-        let p = Problem::Missing { key: "k".into(), fields: vec!["author", "year"] };
+        let p = Problem::Missing {
+            key: "k".into(),
+            fields: vec!["author", "year"],
+        };
         assert_eq!((EN.problem)(&p), "k: missing author, year");
     }
 }

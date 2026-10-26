@@ -70,21 +70,27 @@ pub fn EntryTable() -> impl IntoView {
         let query = state.search.get().to_lowercase();
         let (column, ascending) = state.sort.get();
         let view = state.view.get();
-        let mut rows: Vec<Entry> =
-            state.lib.with(|l| l.entries_in(&view).into_iter().filter(|e| matches(e, &query)).cloned().collect());
+        let mut rows: Vec<Entry> = state.lib.with(|l| {
+            l.entries_in(&view)
+                .into_iter()
+                .filter(|e| matches(e, &query))
+                .cloned()
+                .collect()
+        });
         sort_entries(&mut rows, column, ascending);
         rows
     });
     let anchor = RwSignal::new(None::<String>);
 
-    let all_selected = move || {
-        rows.with(|r| !r.is_empty() && state.selected.with(|s| r.iter().all(|e| s.contains(&e.id))))
-    };
+    let all_selected =
+        move || rows.with(|r| !r.is_empty() && state.selected.with(|s| r.iter().all(|e| s.contains(&e.id))));
     let toggle_all = move |_| {
         if all_selected() {
             state.selected.set(HashSet::new());
         } else {
-            state.selected.set(rows.with_untracked(|r| r.iter().map(|e| e.id.clone()).collect()));
+            state
+                .selected
+                .set(rows.with_untracked(|r| r.iter().map(|e| e.id.clone()).collect()));
         }
     };
 
@@ -189,7 +195,11 @@ fn Row(entry: Entry, rows: Memo<Vec<Entry>>, anchor: RwSignal<Option<String>>) -
     let on_dragstart = move |ev: DragEvent| {
         let id = id.get_value();
         let ids: Vec<String> = state.selected.with_untracked(|s| {
-            if s.contains(&id) { s.iter().cloned().collect() } else { vec![id.clone()] }
+            if s.contains(&id) {
+                s.iter().cloned().collect()
+            } else {
+                vec![id.clone()]
+            }
         });
         if let Some(dt) = ev.data_transfer() {
             let _ = dt.set_data("text/plain", &format!("{} 条", ids.len()));
@@ -203,7 +213,11 @@ fn Row(entry: Entry, rows: Memo<Vec<Entry>>, anchor: RwSignal<Option<String>>) -
     let title = StoredValue::new(entry.title.clone());
     let shown_title = move || {
         let t = title.get_value();
-        if t.is_empty() { state.t().untitled.to_string() } else { t }
+        if t.is_empty() {
+            state.t().untitled.to_string()
+        } else {
+            t
+        }
     };
     let kind_class = format!("tag {}", type_class(entry.kind));
     let label_entry = StoredValue::new(entry.clone());
@@ -272,7 +286,10 @@ mod tests {
         let mk = |key: &str, year: i32, family: &str| Entry {
             key: key.into(),
             year: Some(year),
-            authors: vec![Person { family: family.into(), ..Default::default() }],
+            authors: vec![Person {
+                family: family.into(),
+                ..Default::default()
+            }],
             ..Default::default()
         };
         let mut v = vec![mk("b", 2020, "Zhang"), mk("a", 2020, "Adams"), mk("c", 2018, "Li")];

@@ -52,7 +52,10 @@ pub fn EntryEditor(id: String) -> impl IntoView {
         draft.update(|d| d.key = key);
     };
     let delete = move |_| {
-        if window().confirm_with_message(state.t_untracked().confirm_delete_entry).unwrap_or(false) {
+        if window()
+            .confirm_with_message(state.t_untracked().confirm_delete_entry)
+            .unwrap_or(false)
+        {
             state.lib.update(|l| l.delete_entries(&[id.get_value()], now()));
             state.editing.set(None);
         }

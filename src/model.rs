@@ -75,15 +75,30 @@ impl Person {
             return None;
         }
         if let Some(inner) = line.strip_prefix('{').and_then(|l| l.strip_suffix('}')) {
-            return Some(Person { family: inner.trim().to_string(), literal: true, ..Default::default() });
+            return Some(Person {
+                family: inner.trim().to_string(),
+                literal: true,
+                ..Default::default()
+            });
         }
         let parts: Vec<&str> = line.split(',').map(str::trim).collect();
         let person = match parts.as_slice() {
             [family] => match family.rsplit_once(' ') {
-                Some((given, family)) => Person { family: family.into(), given: given.into(), ..Default::default() },
-                None => Person { family: family.to_string(), ..Default::default() },
+                Some((given, family)) => Person {
+                    family: family.into(),
+                    given: given.into(),
+                    ..Default::default()
+                },
+                None => Person {
+                    family: family.to_string(),
+                    ..Default::default()
+                },
             },
-            [family, given] => Person { family: family.to_string(), given: given.to_string(), ..Default::default() },
+            [family, given] => Person {
+                family: family.to_string(),
+                given: given.to_string(),
+                ..Default::default()
+            },
             [family, suffix, given, ..] => Person {
                 family: family.to_string(),
                 given: given.to_string(),
@@ -184,7 +199,11 @@ pub fn normalize_doi(doi: &str) -> String {
 }
 
 fn normalize_title(title: &str) -> String {
-    title.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
+    title
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 impl Library {
@@ -212,9 +231,7 @@ impl Library {
             if !doi.is_empty() && normalize_doi(&e.doi) == doi {
                 return true;
             }
-            !title.is_empty()
-                && normalize_title(&e.title) == title
-                && e.first_author_family().to_lowercase() == family
+            !title.is_empty() && normalize_title(&e.title) == title && e.first_author_family().to_lowercase() == family
         })
     }
 
@@ -225,8 +242,12 @@ impl Library {
 
     /// Appends `a`, `b`, ... to `base` until no other entry uses it.
     pub fn unique_key(&self, base: &str, except_id: &str) -> String {
-        let taken: HashSet<&str> =
-            self.entries.iter().filter(|e| e.id != except_id).map(|e| e.key.as_str()).collect();
+        let taken: HashSet<&str> = self
+            .entries
+            .iter()
+            .filter(|e| e.id != except_id)
+            .map(|e| e.key.as_str())
+            .collect();
         if !taken.contains(base) {
             return base.to_string();
         }
@@ -276,7 +297,12 @@ impl Library {
     }
 
     pub fn create_collection(&mut self, id: String, name: &str, now: f64) {
-        self.collections.push(Collection { id, name: name.trim().to_string(), entries: vec![], modified: now });
+        self.collections.push(Collection {
+            id,
+            name: name.trim().to_string(),
+            entries: vec![],
+            modified: now,
+        });
     }
 
     pub fn rename_collection(&mut self, id: &str, name: &str, now: f64) {
@@ -293,7 +319,9 @@ impl Library {
 
     /// Returns how many entries were newly added.
     pub fn add_to_collection(&mut self, collection_id: &str, ids: &[String], now: f64) -> usize {
-        let Some(c) = self.collection_mut(collection_id) else { return 0 };
+        let Some(c) = self.collection_mut(collection_id) else {
+            return 0;
+        };
         let mut added = 0;
         for id in ids {
             if !c.entries.contains(id) {
@@ -348,7 +376,10 @@ mod tests {
             doi: doi.into(),
             title: title.into(),
             key: key.into(),
-            authors: vec![Person { family: family.into(), ..Default::default() }],
+            authors: vec![Person {
+                family: family.into(),
+                ..Default::default()
+            }],
             ..Default::default()
         }
     }
@@ -356,10 +387,22 @@ mod tests {
     #[test]
     fn dedupes_by_doi_and_title() {
         let mut lib = Library::default();
-        assert!(matches!(lib.add_entry(entry("1", "10.1/ABC", "Deep Learning", "LeCun", "k"), 0.0), AddOutcome::Added(_)));
-        assert_eq!(lib.add_entry(entry("2", "10.1/abc", "Other", "X", "k"), 0.0), AddOutcome::Duplicate("1".into()));
-        assert_eq!(lib.add_entry(entry("3", "", "Deep  learning!", "lecun", "k"), 0.0), AddOutcome::Duplicate("1".into()));
-        assert!(matches!(lib.add_entry(entry("4", "", "Deep Learning", "Bengio", "k"), 0.0), AddOutcome::Added(_)));
+        assert!(matches!(
+            lib.add_entry(entry("1", "10.1/ABC", "Deep Learning", "LeCun", "k"), 0.0),
+            AddOutcome::Added(_)
+        ));
+        assert_eq!(
+            lib.add_entry(entry("2", "10.1/abc", "Other", "X", "k"), 0.0),
+            AddOutcome::Duplicate("1".into())
+        );
+        assert_eq!(
+            lib.add_entry(entry("3", "", "Deep  learning!", "lecun", "k"), 0.0),
+            AddOutcome::Duplicate("1".into())
+        );
+        assert!(matches!(
+            lib.add_entry(entry("4", "", "Deep Learning", "Bengio", "k"), 0.0),
+            AddOutcome::Added(_)
+        ));
         assert_eq!(lib.entries.len(), 2);
     }
 
@@ -376,7 +419,13 @@ mod tests {
 
     #[test]
     fn person_lines_round_trip() {
-        for line in ["He, Kaiming", "van der Maaten, Laurens", "King, Jr., Martin Luther", "{OpenAI}", "Plato"] {
+        for line in [
+            "He, Kaiming",
+            "van der Maaten, Laurens",
+            "King, Jr., Martin Luther",
+            "{OpenAI}",
+            "Plato",
+        ] {
             assert_eq!(Person::from_line(line).unwrap().to_line(), line);
         }
         assert_eq!(Person::from_line("Kaiming He").unwrap().to_line(), "He, Kaiming");

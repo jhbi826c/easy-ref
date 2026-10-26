@@ -38,7 +38,11 @@ impl SyncConfig {
     }
 
     fn url(&self) -> String {
-        format!("https://api.github.com/repos/{}/contents/{}", self.repo.trim(), self.path())
+        format!(
+            "https://api.github.com/repos/{}/contents/{}",
+            self.repo.trim(),
+            self.path()
+        )
     }
 }
 
@@ -62,9 +66,8 @@ pub fn merge(a: &Library, b: &Library) -> Library {
         let slot = deleted.entry(id.clone()).or_insert(t);
         *slot = slot.max(t);
     }
-    let alive = |deleted: &BTreeMap<String, f64>, id: &str, modified: f64| {
-        deleted.get(id).is_none_or(|&t| t < modified)
-    };
+    let alive =
+        |deleted: &BTreeMap<String, f64>, id: &str, modified: f64| deleted.get(id).is_none_or(|&t| t < modified);
 
     let mut by_id: HashMap<String, Entry> = HashMap::new();
     for e in a.entries.iter().chain(&b.entries) {
@@ -72,7 +75,10 @@ pub fn merge(a: &Library, b: &Library) -> Library {
             by_id.insert(e.id.clone(), e.clone());
         }
     }
-    let mut entries: Vec<Entry> = by_id.into_values().filter(|e| alive(&deleted, &e.id, e.modified)).collect();
+    let mut entries: Vec<Entry> = by_id
+        .into_values()
+        .filter(|e| alive(&deleted, &e.id, e.modified))
+        .collect();
     entries.sort_by(|x, y| x.added.total_cmp(&y.added).then_with(|| x.id.cmp(&y.id)));
 
     let mut first_with_doi: HashMap<String, String> = HashMap::new();
@@ -99,7 +105,10 @@ pub fn merge(a: &Library, b: &Library) -> Library {
     for e in &mut entries {
         if keys.contains(&e.key) {
             let base = e.key.clone();
-            e.key = (0..).map(|n| format!("{base}{}", alpha_suffix(n))).find(|k| !keys.contains(k)).unwrap();
+            e.key = (0..)
+                .map(|n| format!("{base}{}", alpha_suffix(n)))
+                .find(|k| !keys.contains(k))
+                .unwrap();
         }
         keys.insert(e.key.clone());
     }
@@ -127,7 +136,11 @@ pub fn merge(a: &Library, b: &Library) -> Library {
         .collect();
     collections.sort_by(|x, y| x.id.cmp(&y.id));
 
-    Library { entries, collections, deleted }
+    Library {
+        entries,
+        collections,
+        deleted,
+    }
 }
 
 /// Pulls, merges and pushes. Returns the merged library now stored remotely.
@@ -198,7 +211,10 @@ fn network(e: gloo_net::Error) -> SyncError {
 /// The remote library and its blob sha, or `None` if the file does not exist yet.
 async fn fetch(config: &SyncConfig) -> Result<Option<(Library, String)>, SyncError> {
     let url = format!("{}?ref={}", config.url(), config.branch());
-    let resp = authorized(Request::get(&url), config, "application/vnd.github+json").send().await.map_err(network)?;
+    let resp = authorized(Request::get(&url), config, "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(network)?;
     match resp.status() {
         200 => {}
         404 => return Ok(None),
@@ -258,7 +274,10 @@ mod tests {
             doi: doi.into(),
             key: key.into(),
             title: format!("Title {id}"),
-            authors: vec![Person { family: "A".into(), ..Default::default() }],
+            authors: vec![Person {
+                family: "A".into(),
+                ..Default::default()
+            }],
             added,
             modified,
             ..Default::default()
@@ -341,7 +360,11 @@ mod tests {
 
     #[test]
     fn config_validation() {
-        let mut c = SyncConfig { token: "t".into(), repo: "me/refs".into(), ..Default::default() };
+        let mut c = SyncConfig {
+            token: "t".into(),
+            repo: "me/refs".into(),
+            ..Default::default()
+        };
         assert!(c.is_configured());
         assert_eq!(c.url(), "https://api.github.com/repos/me/refs/contents/library.json");
         c.repo = "refs".into();

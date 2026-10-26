@@ -130,8 +130,8 @@ fn is_arxiv_id(id: &str) -> bool {
         }
     }
     if let Some((archive, num)) = id.split_once('/') {
-        let archive_ok = !archive.is_empty()
-            && archive.chars().all(|c| c.is_ascii_alphabetic() || c == '-' || c == '.');
+        let archive_ok =
+            !archive.is_empty() && archive.chars().all(|c| c.is_ascii_alphabetic() || c == '-' || c == '.');
         return archive_ok && num.len() == 7 && num.bytes().all(|b| b.is_ascii_digit());
     }
     false
@@ -174,8 +174,14 @@ mod tests {
         assert_eq!(doi("doi:10.1145/3290605.3300857."), want);
         assert_eq!(doi("https://doi.org/10.1145%2F3290605.3300857"), want);
         assert_eq!(doi("(10.1109/CVPR.2016.90)"), Some("10.1109/CVPR.2016.90".into()));
-        assert_eq!(doi("https://link.springer.com/chapter/10.1007/978-3-319-46448-0_2"), Some("10.1007/978-3-319-46448-0_2".into()));
-        assert_eq!(doi("https://onlinelibrary.wiley.com/doi/full/10.1002/anie.201915678"), Some("10.1002/anie.201915678".into()));
+        assert_eq!(
+            doi("https://link.springer.com/chapter/10.1007/978-3-319-46448-0_2"),
+            Some("10.1007/978-3-319-46448-0_2".into())
+        );
+        assert_eq!(
+            doi("https://onlinelibrary.wiley.com/doi/full/10.1002/anie.201915678"),
+            Some("10.1002/anie.201915678".into())
+        );
     }
 
     #[test]
@@ -188,7 +194,10 @@ mod tests {
         assert_eq!(doi("https://arxiv.org/pdf/1706.03762.pdf"), want);
         assert_eq!(doi("https://doi.org/10.48550/arXiv.1706.03762"), want);
         assert_eq!(doi("10.48550/ARXIV.1706.03762"), want);
-        assert_eq!(doi("https://arxiv.org/abs/hep-th/9901001"), Some("10.48550/arXiv.hep-th/9901001".into()));
+        assert_eq!(
+            doi("https://arxiv.org/abs/hep-th/9901001"),
+            Some("10.48550/arXiv.hep-th/9901001".into())
+        );
     }
 
     #[test]

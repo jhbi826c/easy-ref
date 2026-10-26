@@ -1,7 +1,9 @@
 use crate::model::{Entry, EntryType, Person};
 use std::collections::HashMap;
 
-const MONTHS: [&str; 12] = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+const MONTHS: [&str; 12] = [
+    "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
+];
 
 /// `{FirstAuthorFamily}{Year}{Venue}`, e.g. `He2016CVPR`.
 pub fn cite_key(e: &Entry) -> String {
@@ -10,13 +12,19 @@ pub fn cite_key(e: &Entry) -> String {
         None => camel_ascii(e.title.split_whitespace().next().unwrap_or("Anon")),
     };
     let year = e.year.map(|y| y.to_string()).unwrap_or_default();
-    let venue: String = ascii_fold(&e.venue_short).chars().filter(char::is_ascii_alphanumeric).collect();
+    let venue: String = ascii_fold(&e.venue_short)
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect();
     format!("{name}{year}{venue}")
 }
 
 /// Keeps only characters that are safe in a citation key.
 pub fn sanitize_key(key: &str) -> String {
-    ascii_fold(key).chars().filter(|c| c.is_ascii_alphanumeric() || "-_:./+".contains(*c)).collect()
+    ascii_fold(key)
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || "-_:./+".contains(*c))
+        .collect()
 }
 
 fn camel_ascii(s: &str) -> String {
@@ -32,7 +40,11 @@ fn camel_ascii(s: &str) -> String {
 }
 
 pub fn to_bibtex(entries: &[&Entry]) -> String {
-    entries.iter().map(|e| entry_to_bibtex(e)).collect::<Vec<_>>().join("\n")
+    entries
+        .iter()
+        .map(|e| entry_to_bibtex(e))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub fn entry_to_bibtex(e: &Entry) -> String {
@@ -42,11 +54,37 @@ pub fn entry_to_bibtex(e: &Entry) -> String {
             fields.push((name, value));
         }
     };
-    let braced = |s: &str| if s.trim().is_empty() { String::new() } else { format!("{{{}}}", latex_text(s.trim())) };
-    let raw = |s: &str| if s.trim().is_empty() { String::new() } else { format!("{{{}}}", s.trim()) };
+    let braced = |s: &str| {
+        if s.trim().is_empty() {
+            String::new()
+        } else {
+            format!("{{{}}}", latex_text(s.trim()))
+        }
+    };
+    let raw = |s: &str| {
+        if s.trim().is_empty() {
+            String::new()
+        } else {
+            format!("{{{}}}", s.trim())
+        }
+    };
 
-    put("author", if e.authors.is_empty() { String::new() } else { format!("{{{}}}", format_authors(&e.authors)) });
-    put("title", if e.title.trim().is_empty() { String::new() } else { format!("{{{}}}", latex_title(e.title.trim())) });
+    put(
+        "author",
+        if e.authors.is_empty() {
+            String::new()
+        } else {
+            format!("{{{}}}", format_authors(&e.authors))
+        },
+    );
+    put(
+        "title",
+        if e.title.trim().is_empty() {
+            String::new()
+        } else {
+            format!("{{{}}}", latex_title(e.title.trim()))
+        },
+    );
 
     match e.kind {
         EntryType::Article => {
@@ -134,7 +172,11 @@ fn format_authors(authors: &[Person]) -> String {
 }
 
 fn protect_and(s: &str) -> String {
-    if s.split_whitespace().any(|w| w.eq_ignore_ascii_case("and")) { format!("{{{s}}}") } else { s.to_string() }
+    if s.split_whitespace().any(|w| w.eq_ignore_ascii_case("and")) {
+        format!("{{{s}}}")
+    } else {
+        s.to_string()
+    }
 }
 
 fn page_range(pages: &str) -> String {
@@ -154,8 +196,12 @@ fn latex_title(title: &str) -> String {
         .split_whitespace()
         .map(|token| {
             let start = token.find(|c: char| c.is_alphanumeric());
-            let end = token.rfind(|c: char| c.is_alphanumeric()).map(|i| i + token[i..].chars().next().unwrap().len_utf8());
-            let (Some(start), Some(end)) = (start, end) else { return latex_text(token) };
+            let end = token
+                .rfind(|c: char| c.is_alphanumeric())
+                .map(|i| i + token[i..].chars().next().unwrap().len_utf8());
+            let (Some(start), Some(end)) = (start, end) else {
+                return latex_text(token);
+            };
             let (pre, core, post) = (&token[..start], &token[start..end], &token[end..]);
             let core_tex = latex_text(core);
             let protect = core.split('-').any(|part| part.chars().skip(1).any(char::is_uppercase));
@@ -354,7 +400,10 @@ pub fn check(entries: &[&Entry]) -> Vec<Problem> {
             missing.push(name);
         }
         if !missing.is_empty() {
-            problems.push(Problem::Missing { key: e.key.clone(), fields: missing });
+            problems.push(Problem::Missing {
+                key: e.key.clone(),
+                fields: missing,
+            });
         }
     }
     let mut dups: Vec<_> = seen.into_iter().filter(|(_, n)| *n > 1).map(|(k, _)| k).collect();
@@ -368,7 +417,11 @@ mod tests {
     use super::*;
 
     fn person(family: &str, given: &str) -> Person {
-        Person { family: family.into(), given: given.into(), ..Default::default() }
+        Person {
+            family: family.into(),
+            given: given.into(),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -380,7 +433,11 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(cite_key(&e), "Muller2020NeurIPS");
-        let e = Entry { authors: vec![person("van der Maaten", "Laurens")], year: Some(2008), ..Default::default() };
+        let e = Entry {
+            authors: vec![person("van der Maaten", "Laurens")],
+            year: Some(2008),
+            ..Default::default()
+        };
         assert_eq!(cite_key(&e), "VanDerMaaten2008");
         assert_eq!(sanitize_key("He 2016, CVPR{}"), "He2016CVPR");
     }
@@ -401,7 +458,10 @@ mod tests {
         );
         assert_eq!(latex_title("Faster R-CNN (with GPUs)"), "Faster {R-CNN} (with {GPUs})");
         assert_eq!(latex_title("ImageNet in 3D"), "{ImageNet} in {3D}");
-        assert_eq!(latex_title("Towards Real-Time Detection"), "Towards Real-Time Detection");
+        assert_eq!(
+            latex_title("Towards Real-Time Detection"),
+            "Towards Real-Time Detection"
+        );
     }
 
     #[test]
@@ -449,17 +509,28 @@ mod tests {
             ..Default::default()
         };
         let bib = entry_to_bibtex(&e);
-        assert!(bib.contains("howpublished  = {arXiv preprint arXiv:1706.03762}"), "{bib}");
+        assert!(
+            bib.contains("howpublished  = {arXiv preprint arXiv:1706.03762}"),
+            "{bib}"
+        );
         assert!(bib.contains("archiveprefix = {arXiv}"));
         assert!(bib.contains("url           = {https://arxiv.org/abs/1706.03762}"));
     }
 
     #[test]
     fn reports_problems() {
-        let a = Entry { key: "k".into(), kind: EntryType::Article, title: "T".into(), ..Default::default() };
+        let a = Entry {
+            key: "k".into(),
+            kind: EntryType::Article,
+            title: "T".into(),
+            ..Default::default()
+        };
         let b = a.clone();
         let problems = check(&[&a, &b]);
-        let missing = Problem::Missing { key: "k".into(), fields: vec!["author", "year", "volume/number", "journal"] };
+        let missing = Problem::Missing {
+            key: "k".into(),
+            fields: vec!["author", "year", "volume/number", "journal"],
+        };
         assert_eq!(problems, [missing.clone(), missing, Problem::DuplicateKey("k".into())]);
     }
 
@@ -473,7 +544,11 @@ mod tests {
             title: "Ünïcode & 50% of {Braces}: α-tests for R&D_1 #hash ~x^y <a|b> — “quoted” …".into(),
             authors: vec![
                 person("Gödel", "Kurt"),
-                Person { family: "Society for Science and Technology".into(), literal: true, ..Default::default() },
+                Person {
+                    family: "Society for Science and Technology".into(),
+                    literal: true,
+                    ..Default::default()
+                },
                 person("Łukasiewicz", "Jan"),
                 person("Dvořák", "Antonín"),
             ],
