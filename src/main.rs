@@ -1,3 +1,6 @@
+mod model;
+mod storage;
+
 use leptos::prelude::*;
 
 #[component]
