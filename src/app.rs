@@ -489,20 +489,6 @@ fn CollectionItem(id: String, name: String, count: usize, renaming: RwSignal<Opt
             }
         }
     };
-    let export = move |ev: leptos::ev::MouseEvent| {
-        ev.stop_propagation();
-        let ids = state.lib.with_untracked(|l| {
-            l.entries_in(&View::Collection(id.get_value()))
-                .iter()
-                .map(|e| e.id.clone())
-                .collect()
-        });
-        state.exporting.set(Some(Export {
-            ids,
-            name: name_for(state, &id.get_value()),
-        }));
-    };
-
     view! {
         <Show
             when=is_renaming
@@ -536,9 +522,6 @@ fn CollectionItem(id: String, name: String, count: usize, renaming: RwSignal<Opt
                                 }
                             >
                                 "✎"
-                            </button>
-                            <button class="icon" title=move || state.t().export_bibtex on:click=export>
-                                "⇩"
                             </button>
                             <button class="icon" title=move || state.t().delete_collection on:click=remove>
                                 "×"
