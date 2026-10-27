@@ -292,9 +292,14 @@ fn Row(entry: Entry, rows: Memo<Vec<Entry>>, anchor: RwSignal<Option<String>>) -
             toggle();
         } else {
             state.selected.set(HashSet::from([id.clone()]));
-            anchor.set(Some(id.clone()));
-            state.editing.set(Some(id));
+            anchor.set(Some(id));
         }
+    };
+    let on_dblclick = move |_: MouseEvent| {
+        let id = id.get_value();
+        state.selected.set(HashSet::from([id.clone()]));
+        anchor.set(Some(id.clone()));
+        state.editing.set(Some(id));
     };
     let on_dragstart = move |ev: DragEvent| {
         let id = id.get_value();
@@ -331,6 +336,7 @@ fn Row(entry: Entry, rows: Memo<Vec<Entry>>, anchor: RwSignal<Option<String>>) -
             class:selected=is_selected
             draggable="true"
             on:click=on_click
+            on:dblclick=on_dblclick
             on:dragstart=on_dragstart
             on:dragend=move |_| state.dragging.set(vec![])
         >
