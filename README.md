@@ -7,10 +7,11 @@ A small reference manager written in Rust (Leptos + WebAssembly). It runs as a s
 - Paste DOIs, doi.org / ACM / Springer links or arXiv IDs (several at once) to create entries; metadata comes from Crossref and DataCite
 - Paste BibTeX copied from Google Scholar, ACM, IEEE Xplore, DBLP or arXiv, or import whole `.bib` files; LaTeX accents are decoded, and `{...}` case protection and `and others` are kept
 - Duplicates (same DOI, or same title and first author) are not added twice
-- A library view with every entry, plus collections; an entry can belong to several collections (drag and drop or batch add)
+- A library view with every entry, plus nested collections; an entry can belong to several collections (drag and drop or batch add), and a collection shows and exports the entries of its subcollections
+- Deleted entries go to a trash, from which they can be restored or deleted permanently
 - Table columns for title, authors, year, venue, type, citation key and date added, sortable by clicking the header
 - Export a collection or a selection as BibTeX, copied or downloaded as `.bib`
-- Citation keys are first author's last name + year + venue abbreviation, e.g. `He2016CVPR`, `Ren2017TPAMI`, `Vaswani2017arXiv`
+- Citation keys are first author's last name + year + venue abbreviation, e.g. `He2016CVPR`, `Ren2017TPAMI`, `Vaswani2017arXiv`; a clashing key gets the first title word (`He2016CVPRIdentity`), then `a`, `b`, …
 - Export checks for missing fields and duplicate keys, escapes special characters and accents, and protects acronyms in titles, so common styles (plain, IEEEtran, ACM, …) compile without warnings
 - Chinese and English UI; light, dark or system theme
 - Installable as an app (Settings → Install app, or the browser's install option) and usable offline; DOI lookup and sync need a connection
