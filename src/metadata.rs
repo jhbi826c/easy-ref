@@ -27,7 +27,7 @@ pub async fn lookup(doi: &str) -> Result<Entry, LookupError> {
     }
 }
 
-/// `Ok(None)` on 404. Retries rate-limited requests, which browsers report as network errors.
+/// `Ok(None)` on 404. Retries rate-limited requests.
 async fn fetch_json(url: &str) -> Result<Option<Value>, LookupError> {
     const ATTEMPTS: u32 = 4;
     let mut last_error = String::new();
@@ -425,7 +425,7 @@ const KNOWN_VENUES: [(&str, &str); 8] = [
     ("proceedings of the national academy of sciences", "PNAS"),
 ];
 
-/// Distinctive parts of conference names that are often written out in full.
+/// Phrases in spelled-out conference names.
 const CONFERENCES: [(&str, &str); 40] = [
     ("computer vision and pattern recognition", "CVPR"),
     ("international conference on computer vision", "ICCV"),

@@ -200,7 +200,7 @@ pub enum Place {
 pub struct Library {
     pub entries: Vec<Entry>,
     pub collections: Vec<Collection>,
-    /// Deleted entry/collection ids with deletion time, kept for sync.
+    /// Deleted entry and collection ids with deletion time.
     pub deleted: BTreeMap<String, f64>,
 }
 
@@ -263,7 +263,7 @@ impl Library {
         self.entries.iter().find(|e| normalize_doi(&e.doi) == doi)
     }
 
-    /// Appends `a`, `b`, ... to `base` until no other entry uses it.
+    /// A key based on `base` that no other entry uses.
     pub fn unique_key(&self, base: &str, title: &str, except_id: &str) -> String {
         let taken: HashSet<&str> = self
             .entries
@@ -367,8 +367,7 @@ impl Library {
         children
     }
 
-    /// All collections in display order with their depth. Collections caught in a
-    /// parent cycle (possible after concurrent moves) are shown at the top level.
+    /// All collections in display order with their depth; collections in a parent cycle are top level.
     pub fn tree(&self) -> Vec<(&Collection, usize)> {
         fn walk<'a>(
             lib: &'a Library,

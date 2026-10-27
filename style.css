@@ -1,4 +1,4 @@
-/* light-dark() follows color-scheme: the system by default, forced by data-theme. */
+/* Colors follow color-scheme, which data-theme can force. */
 :root {
   color-scheme: light dark;
   --bg: light-dark(#ffffff, #16181d);

@@ -192,9 +192,7 @@ fn page_range(pages: &str) -> String {
     }
 }
 
-/// Escapes the title and braces words whose capitalization must survive sentence-casing styles.
-/// Escapes the title. `{...}` groups in it are kept as written; elsewhere words whose
-/// capitalization must survive sentence-casing styles are braced.
+/// Escapes the title, keeping `{...}` groups and bracing words with inner capitals.
 fn latex_title(title: &str) -> String {
     if !braces_balanced(title) {
         return latex_words(&title.replace(['{', '}'], ""));

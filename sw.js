@@ -1,4 +1,4 @@
-// Caches the app shell so the installed app opens offline.
+// Caches the app shell for offline use.
 const CACHE = "easy-ref";
 
 self.addEventListener("install", () => self.skipWaiting());
@@ -13,7 +13,7 @@ self.addEventListener("fetch", (event) => {
 async function networkFirst(request) {
   const cache = await caches.open(CACHE);
   try {
-    // Revalidate so a new deploy is picked up on the next launch.
+    // Bypass the HTTP cache.
     const response = await fetch(request.url, { cache: "no-cache", credentials: "same-origin" });
     if (response.ok) {
       await cache.put(self.registration.scope, response.clone());

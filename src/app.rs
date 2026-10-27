@@ -840,7 +840,7 @@ fn AddBar() -> impl IntoView {
     let is_bib = Memo::new(move |_| text.with(|t| bibparse::looks_like_bibtex(t)));
     let area = NodeRef::<leptos::html::Textarea>::new();
 
-    // Grow with the content; CSS caps the height.
+    // Fit the height to the content.
     Effect::new(move |_| {
         text.track();
         request_animation_frame(move || {
@@ -973,7 +973,7 @@ fn add_identifiers(state: AppState, input: &str) {
     }
 }
 
-/// Looks DOIs up one at a time; Crossref's public API allows a single concurrent request.
+/// Looks up queued DOIs one at a time.
 async fn run_queue(state: AppState) {
     let mut added = 0;
     while let Some((doi, target)) = state.queue.try_update(|q| q.pop_front()).flatten() {
