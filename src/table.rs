@@ -16,6 +16,7 @@ pub enum SortColumn {
     Type,
     Key,
     Added,
+    Deleted,
 }
 
 type Label = fn(&Strings) -> &'static str;
@@ -30,6 +31,9 @@ const COLUMNS: [(SortColumn, Label, &str); 7] = [
     (SortColumn::Added, |t| t.col_added, "col-added"),
 ];
 
+/// Shown in the trash only.
+const DELETED_COLUMN: (SortColumn, Label, &str) = (SortColumn::Deleted, |t| t.col_deleted, "col-deleted");
+
 pub fn sort_entries(entries: &mut [Entry], column: SortColumn, ascending: bool) {
     let text = |s: &str| s.to_lowercase();
     entries.sort_by(|a, b| {
@@ -41,6 +45,7 @@ pub fn sort_entries(entries: &mut [Entry], column: SortColumn, ascending: bool) 
             SortColumn::Type => a.kind.cmp(&b.kind),
             SortColumn::Key => text(&a.key).cmp(&text(&b.key)),
             SortColumn::Added => a.added.partial_cmp(&b.added).unwrap_or(Ordering::Equal),
+            SortColumn::Deleted => a.trashed.partial_cmp(&b.trashed).unwrap_or(Ordering::Equal),
         };
         let ord = if ascending { ord } else { ord.reverse() };
         ord.then_with(|| a.key.cmp(&b.key))
@@ -95,32 +100,36 @@ pub fn EntryTable() -> impl IntoView {
         }
     };
 
-    let headers = COLUMNS
-        .into_iter()
-        .map(|(column, label, class)| {
-            let indicator = move || match state.sort.get() {
-                (c, true) if c == column => "▲",
-                (c, false) if c == column => "▼",
-                _ => "",
-            };
-            let on_click = move |_| {
-                state.sort.update(|(c, asc)| {
-                    if *c == column {
-                        *asc = !*asc;
-                    } else {
-                        *c = column;
-                        *asc = !matches!(column, SortColumn::Year | SortColumn::Added);
-                    }
-                })
-            };
-            view! {
-                <th class=class on:click=on_click>
-                    {move || label(state.t())}
-                    <span class="sort">{indicator}</span>
-                </th>
-            }
-        })
-        .collect_view();
+    let header = move |(column, label, class): (SortColumn, Label, &'static str)| {
+        let indicator = move || match state.sort.get() {
+            (c, true) if c == column => "▲",
+            (c, false) if c == column => "▼",
+            _ => "",
+        };
+        let on_click = move |_| {
+            state.sort.update(|(c, asc)| {
+                if *c == column {
+                    *asc = !*asc;
+                } else {
+                    *c = column;
+                    *asc = !matches!(column, SortColumn::Year | SortColumn::Added | SortColumn::Deleted);
+                }
+            })
+        };
+        view! {
+            <th class=class on:click=on_click>
+                {move || label(state.t())}
+                <span class="sort">{indicator}</span>
+            </th>
+        }
+    };
+    let headers = move || {
+        COLUMNS
+            .into_iter()
+            .chain(state.in_trash().then_some(DELETED_COLUMN))
+            .map(header)
+            .collect_view()
+    };
 
     view! {
         <div class="table-wrap">
@@ -256,6 +265,7 @@ fn Row(entry: Entry, rows: Memo<Vec<Entry>>, anchor: RwSignal<Option<String>>) -
             </td>
             <td class="col-key">{entry.key.clone()}</td>
             <td class="col-added">{format_date(entry.added)}</td>
+            {entry.trashed.map(|t| view! { <td class="col-deleted">{format_date(t)}</td> })}
         </tr>
     }
 }

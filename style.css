@@ -531,7 +531,8 @@ table.entries {
   font-size: 12px;
 }
 
-.col-added {
+.col-added,
+.col-deleted {
   width: 100px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
@@ -940,7 +941,8 @@ button:disabled {
   .entries .col-venue,
   .entries .col-type,
   .entries .col-key,
-  .entries .col-added {
+  .entries .col-added,
+  .entries .col-deleted {
     display: none;
   }
 
