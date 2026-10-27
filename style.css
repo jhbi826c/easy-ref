@@ -1,33 +1,66 @@
-/* Colors follow color-scheme, which data-theme can force. */
+/* Light by default; dark from the system unless data-theme="light", or forced by data-theme="dark". */
 :root {
-  color-scheme: light dark;
-  --bg: light-dark(#ffffff, #16181d);
-  --bg-soft: light-dark(#f6f7f9, #1d2027);
-  --bg-hover: light-dark(#eef1f5, #252933);
-  --bg-selected: light-dark(#dce8fb, #1e3a66);
-  --border: light-dark(#e2e5ea, #2d313b);
-  --text: light-dark(#1d2330, #e6e8ec);
-  --muted: light-dark(#6b7280, #9aa1ad);
-  --accent: light-dark(#2563eb, #4f8cf7);
+  color-scheme: light;
+  --bg: #ffffff;
+  --bg-soft: #f6f7f9;
+  --bg-hover: #eef1f5;
+  --bg-selected: #dce8fb;
+  --border: #e2e5ea;
+  --text: #1d2330;
+  --muted: #6b7280;
+  --accent: #2563eb;
   --accent-text: #ffffff;
-  --danger: light-dark(#dc2626, #f05252);
-  --ok: light-dark(#16a34a, #31c48d);
-  --warn: light-dark(#d97706, #f0a33a);
-  --shadow-color: light-dark(rgba(15, 23, 42, 0.16), rgba(0, 0, 0, 0.5));
-  --shadow: 0 8px 28px var(--shadow-color);
+  --danger: #dc2626;
+  --ok: #16a34a;
+  --warn: #d97706;
+  --shadow: 0 8px 28px rgba(15, 23, 42, 0.16);
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-  --tag-journal: light-dark(#2563eb, #7aa7ff);
-  --tag-conf: light-dark(#059669, #34d399);
-  --tag-preprint: light-dark(#c2410c, #fb923c);
-  --tag-other: light-dark(#6b7280, #9aa1ad);
+  --tag-journal: #2563eb;
+  --tag-conf: #059669;
+  --tag-preprint: #c2410c;
+  --tag-other: #6b7280;
 }
 
-:root[data-theme="light"] {
-  color-scheme: light;
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #16181d;
+    --bg-soft: #1d2027;
+    --bg-hover: #252933;
+    --bg-selected: #1e3a66;
+    --border: #2d313b;
+    --text: #e6e8ec;
+    --muted: #9aa1ad;
+    --accent: #4f8cf7;
+    --danger: #f05252;
+    --ok: #31c48d;
+    --warn: #f0a33a;
+    --shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+    --tag-journal: #7aa7ff;
+    --tag-conf: #34d399;
+    --tag-preprint: #fb923c;
+    --tag-other: #9aa1ad;
+  }
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
+  --bg: #16181d;
+  --bg-soft: #1d2027;
+  --bg-hover: #252933;
+  --bg-selected: #1e3a66;
+  --border: #2d313b;
+  --text: #e6e8ec;
+  --muted: #9aa1ad;
+  --accent: #4f8cf7;
+  --danger: #f05252;
+  --ok: #31c48d;
+  --warn: #f0a33a;
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  --tag-journal: #7aa7ff;
+  --tag-conf: #34d399;
+  --tag-preprint: #fb923c;
+  --tag-other: #9aa1ad;
 }
 
 * {
