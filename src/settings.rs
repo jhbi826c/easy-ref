@@ -1,13 +1,13 @@
 use crate::app::{AppState, SyncStatus};
-use crate::i18n::{Lang, Strings};
+use crate::i18n::Lang;
 use crate::storage;
-use crate::sync::{DEFAULT_BRANCH, DEFAULT_PATH, SyncConfig};
+use crate::sync::SyncConfig;
 use leptos::ev::MouseEvent;
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{JsCast, JsValue};
 
-const TOKEN_URL: &str = "https://github.com/settings/personal-access-tokens/new";
+const TOKEN_URL: &str = "https://github.com/settings/tokens/new?scopes=gist&description=easy-ref";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Theme {
@@ -182,8 +182,6 @@ fn InstallSettings() -> impl IntoView {
     }
 }
 
-type Label = fn(&Strings) -> &'static str;
-
 #[component]
 fn SyncSettings() -> impl IntoView {
     let state = expect_context::<AppState>();
@@ -196,33 +194,28 @@ fn SyncSettings() -> impl IntoView {
         state.synced.set(None);
     };
     let save_and_sync = move |_| {
-        apply(draft.get_untracked());
+        let d = draft.get_untracked();
+        let mut config = state.sync_config.get_untracked();
+        if config.token.trim() != d.token.trim() {
+            config.gist_id.clear();
+        }
+        config.token = d.token.trim().to_string();
+        config.auto = d.auto;
+        apply(config);
         state.start_sync();
     };
-    let clear_token = move |_| {
+    let disconnect = move |_| {
         draft.update(|c| c.token.clear());
-        apply(draft.get_untracked());
+        apply(SyncConfig {
+            auto: draft.with_untracked(|c| c.auto),
+            ..Default::default()
+        });
         state.sync_status.set(SyncStatus::Idle);
     };
-
-    let field = move |label: Label,
-                      kind: &'static str,
-                      placeholder: &'static str,
-                      get: fn(&SyncConfig) -> &String,
-                      set: fn(&mut SyncConfig, String)| {
-        view! {
-            <label class="field">
-                <span>{move || label(t())}</span>
-                <input
-                    type=kind
-                    placeholder=placeholder
-                    autocomplete="off"
-                    spellcheck="false"
-                    prop:value=move || draft.with(|c| get(c).clone())
-                    on:input=move |ev| draft.update(|c| set(c, event_target_value(&ev)))
-                />
-            </label>
-        }
+    let gist_url = move || {
+        state
+            .sync_config
+            .with(|c| (!c.gist_id.is_empty()).then(|| format!("https://gist.github.com/{}", c.gist_id)))
     };
 
     let status = move || match state.sync_status.get() {
@@ -236,18 +229,23 @@ fn SyncSettings() -> impl IntoView {
         <section class="sync-settings">
             <h3>{move || t().sync_section}</h3>
             <p class="muted">{move || t().sync_intro}</p>
-            {field(|t| t.field_token, "password", "github_pat_…", |c| &c.token, |c, v| c.token = v)}
+            <label class="field">
+                <span>{move || t().field_token}</span>
+                <input
+                    type="password"
+                    placeholder="ghp_…"
+                    autocomplete="off"
+                    spellcheck="false"
+                    prop:value=move || draft.with(|c| c.token.clone())
+                    on:input=move |ev| draft.update(|c| c.token = event_target_value(&ev))
+                />
+            </label>
             <p class="muted small">
                 {move || t().token_hint} " "
                 <a href=TOKEN_URL target="_blank" rel="noopener">
                     {move || t().create_token}
                 </a>
             </p>
-            {field(|t| t.field_repo, "text", "owner/repo", |c| &c.repo, |c, v| c.repo = v)}
-            <div class="grid2">
-                {field(|t| t.field_branch, "text", DEFAULT_BRANCH, |c| &c.branch, |c, v| c.branch = v)}
-                {field(|t| t.field_path, "text", DEFAULT_PATH, |c| &c.path, |c, v| c.path = v)}
-            </div>
             <label class="check">
                 <input
                     type="checkbox"
@@ -257,9 +255,21 @@ fn SyncSettings() -> impl IntoView {
                 {move || t().auto_sync}
             </label>
             {move || status().map(|(class, text)| view! { <p class=format!("sync-status {class}")>{text}</p> })}
+            {move || {
+                gist_url()
+                    .map(|url| {
+                        view! {
+                            <p class="small">
+                                <a href=url target="_blank" rel="noopener">
+                                    {move || t().open_gist}
+                                </a>
+                            </p>
+                        }
+                    })
+            }}
             <div class="row-actions">
-                <button class="danger" on:click=clear_token>
-                    {move || t().clear_token}
+                <button class="danger" on:click=disconnect>
+                    {move || t().disconnect}
                 </button>
                 <div class="spacer"></div>
                 <button

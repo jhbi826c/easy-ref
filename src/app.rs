@@ -89,12 +89,16 @@ impl AppState {
         spawn_local(async move {
             let snapshot = self.lib.get_untracked();
             match sync::sync(&config, &snapshot).await {
-                Ok(merged) => {
+                Ok((merged, gist_id)) => {
                     let current = self.lib.get_untracked();
                     let next = sync::merge(&current, &merged);
                     self.synced.set(Some(merged));
                     if next != current {
                         self.lib.set(next);
+                    }
+                    if self.sync_config.with_untracked(|c| c.gist_id != gist_id) {
+                        self.sync_config.update(|c| c.gist_id = gist_id);
+                        self.sync_config.with_untracked(|c| storage::save(storage::SYNC_KEY, c));
                     }
                     self.sync_status.set(SyncStatus::Done(now()));
                 }

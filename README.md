@@ -1,6 +1,6 @@
 # easy-ref
 
-A small reference manager written in Rust (Leptos + WebAssembly). It runs as a static site on GitHub Pages and can sync its library across devices through a private GitHub repository.
+A small reference manager written in Rust (Leptos + WebAssembly). It runs as a static site on GitHub Pages and can sync its library across devices through a secret GitHub gist.
 
 ## Features
 
@@ -34,13 +34,12 @@ The site is served at `https://<user>.github.io/<repo>/`.
 
 ## Sync
 
-The library is stored as a JSON file in a GitHub repository. Use a dedicated **private** repository:
+The library can be synced through a secret gist in your GitHub account:
 
-1. Create a private repository, e.g. `my-references`
-2. Create a fine-grained token at <https://github.com/settings/personal-access-tokens/new> with access to that repository only and **Contents: Read and write**
-3. In easy-ref, open **Settings → GitHub sync**, enter the token and `<user>/my-references`, then click **Save and sync**
+1. Create a GitHub token with the `gist` scope ([direct link](https://github.com/settings/tokens/new?scopes=gist&description=easy-ref))
+2. In easy-ref, open **Settings → Sync**, paste the token and click **Save and sync**
 
-Each sync pulls, merges and pushes: the newer edit of an entry wins, deletions propagate to other devices, and the same DOI added on two devices becomes one entry. The token is stored only in the browser's localStorage.
+The first sync creates a secret gist containing `easy-ref-library.json`. Other devices that use a token from the same account find that gist automatically. Each sync pulls, merges and pushes: the newer edit of an entry wins, deletions propagate to other devices, and the same DOI added on two devices becomes one entry. The token is stored only in the browser's localStorage.
 
 ## Limitations
 

@@ -1,48 +1,26 @@
-//! Syncs the library with a JSON file in a GitHub repository.
+//! Syncs the library with a secret GitHub gist.
 
 use crate::model::{Collection, Entry, Library, disambiguate_key, normalize_doi};
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD as BASE64;
-use gloo_net::http::{Request, RequestBuilder, Response};
+use gloo_net::http::{Request, RequestBuilder};
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
+
+const API: &str = "https://api.github.com";
+pub const FILE: &str = "easy-ref-library.json";
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SyncConfig {
     pub token: String,
-    /// `owner/repo`
-    pub repo: String,
-    pub branch: String,
-    pub path: String,
+    /// Found or created on the first sync.
+    pub gist_id: String,
     pub auto: bool,
 }
 
-pub const DEFAULT_BRANCH: &str = "main";
-pub const DEFAULT_PATH: &str = "library.json";
-
 impl SyncConfig {
     pub fn is_configured(&self) -> bool {
-        let parts: Vec<&str> = self.repo.trim().split('/').collect();
-        !self.token.trim().is_empty() && parts.len() == 2 && parts.iter().all(|p| !p.is_empty())
-    }
-
-    fn branch(&self) -> &str {
-        let b = self.branch.trim();
-        if b.is_empty() { DEFAULT_BRANCH } else { b }
-    }
-
-    fn path(&self) -> &str {
-        let p = self.path.trim().trim_matches('/');
-        if p.is_empty() { DEFAULT_PATH } else { p }
-    }
-
-    fn url(&self) -> String {
-        format!(
-            "https://api.github.com/repos/{}/contents/{}",
-            self.repo.trim(),
-            self.path()
-        )
+        !self.token.trim().is_empty()
     }
 }
 
@@ -51,8 +29,6 @@ pub enum SyncError {
     NotConfigured,
     Unauthorized,
     Forbidden(String),
-    NotFound,
-    Conflict,
     Network(String),
     Http(u16, String),
     InvalidFile(String),
@@ -143,124 +119,117 @@ pub fn merge(a: &Library, b: &Library) -> Library {
     }
 }
 
-/// Pulls, merges and pushes. Returns the merged library now stored remotely.
-pub async fn sync(config: &SyncConfig, local: &Library) -> Result<Library, SyncError> {
-    if !config.is_configured() {
+/// Pulls the gist, merges and pushes. Returns the merged library and the gist id.
+pub async fn sync(config: &SyncConfig, local: &Library) -> Result<(Library, String), SyncError> {
+    let token = config.token.trim();
+    if token.is_empty() {
         return Err(SyncError::NotConfigured);
     }
-    for _ in 0..3 {
-        let remote = fetch(config).await?;
-        let (merged, sha) = match &remote {
-            Some((lib, sha)) => {
-                let merged = merge(local, lib);
-                if merged == merge(lib, lib) {
-                    return Ok(merged);
-                }
-                (merged, Some(sha.as_str()))
-            }
-            None => (merge(local, local), None),
-        };
-        match push(config, &merged, sha).await {
-            Ok(()) => return Ok(merged),
-            Err(SyncError::Conflict) => continue,
+    let mut id = config.gist_id.trim().to_string();
+    let mut remote = None;
+    if !id.is_empty() {
+        match read_gist(token, &id).await {
+            Ok(r) => remote = r,
+            Err(SyncError::Http(404, _)) => id.clear(),
             Err(e) => return Err(e),
         }
     }
-    Err(SyncError::Conflict)
+    if id.is_empty()
+        && let Some(found) = find_gist(token).await?
+    {
+        remote = read_gist(token, &found).await?;
+        id = found;
+    }
+
+    let merged = match &remote {
+        Some(r) => merge(local, r),
+        None => merge(local, local),
+    };
+    if remote.as_ref().is_some_and(|r| merge(r, r) == merged) {
+        return Ok((merged, id));
+    }
+    let content = serde_json::to_string_pretty(&merged).map_err(|e| SyncError::InvalidFile(e.to_string()))?;
+    let files = json!({ FILE: { "content": content } });
+    if id.is_empty() {
+        let body = json!({ "description": "easy-ref library", "public": false, "files": files });
+        let created = send(authorized(Request::post(&format!("{API}/gists")), token).json(&body)).await?;
+        id = created["id"].as_str().unwrap_or_default().to_string();
+    } else {
+        let body = json!({ "files": files });
+        send(authorized(Request::patch(&format!("{API}/gists/{id}")), token).json(&body)).await?;
+    }
+    Ok((merged, id))
 }
 
-#[derive(Deserialize)]
-struct ContentFile {
-    sha: String,
-    #[serde(default)]
-    content: String,
-    #[serde(default)]
-    encoding: String,
-}
-
-fn authorized(builder: RequestBuilder, config: &SyncConfig, accept: &str) -> RequestBuilder {
+fn authorized(builder: RequestBuilder, token: &str) -> RequestBuilder {
     builder
-        .header("Authorization", &format!("Bearer {}", config.token.trim()))
-        .header("Accept", accept)
+        .header("Authorization", &format!("Bearer {token}"))
+        .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28")
         .cache(web_sys::RequestCache::NoStore)
 }
 
-async fn error_for(resp: Response) -> SyncError {
+async fn send(request: Result<Request, gloo_net::Error>) -> Result<Value, SyncError> {
+    let resp = request
+        .map_err(|e| SyncError::Network(e.to_string()))?
+        .send()
+        .await
+        .map_err(|e| SyncError::Network(e.to_string()))?;
     let status = resp.status();
+    if (200..300).contains(&status) {
+        return resp.json().await.map_err(|e| SyncError::InvalidFile(e.to_string()));
+    }
     let message = resp
-        .json::<serde_json::Value>()
+        .json::<Value>()
         .await
         .ok()
         .and_then(|v| v["message"].as_str().map(str::to_string))
         .unwrap_or_default();
-    match status {
+    Err(match status {
         401 => SyncError::Unauthorized,
         403 => SyncError::Forbidden(message),
-        404 => SyncError::NotFound,
-        409 => SyncError::Conflict,
-        422 if message.contains("sha") => SyncError::Conflict,
         code => SyncError::Http(code, message),
-    }
+    })
 }
 
-fn network(e: gloo_net::Error) -> SyncError {
-    SyncError::Network(e.to_string())
+/// Id of a gist of this account that contains [`FILE`].
+async fn find_gist(token: &str) -> Result<Option<String>, SyncError> {
+    for page in 1..=10 {
+        let list =
+            send(authorized(Request::get(&format!("{API}/gists?per_page=100&page={page}")), token).build()).await?;
+        let Some(gists) = list.as_array() else { break };
+        if let Some(gist) = gists.iter().find(|g| g["files"].get(FILE).is_some()) {
+            return Ok(gist["id"].as_str().map(str::to_string));
+        }
+        if gists.len() < 100 {
+            break;
+        }
+    }
+    Ok(None)
 }
 
-/// The remote library and its blob sha, or `None` if the file does not exist yet.
-async fn fetch(config: &SyncConfig) -> Result<Option<(Library, String)>, SyncError> {
-    let url = format!("{}?ref={}", config.url(), config.branch());
-    let resp = authorized(Request::get(&url), config, "application/vnd.github+json")
-        .send()
-        .await
-        .map_err(network)?;
-    match resp.status() {
-        200 => {}
-        404 => return Ok(None),
-        _ => return Err(error_for(resp).await),
+async fn read_gist(token: &str, id: &str) -> Result<Option<Library>, SyncError> {
+    let gist = send(authorized(Request::get(&format!("{API}/gists/{id}")), token).build()).await?;
+    let file = &gist["files"][FILE];
+    if file.is_null() {
+        return Ok(None);
     }
-    let file: ContentFile = resp.json().await.map_err(|e| SyncError::InvalidFile(e.to_string()))?;
-    let text = if file.encoding == "base64" {
-        let raw: String = file.content.chars().filter(|c| !c.is_whitespace()).collect();
-        let bytes = BASE64.decode(raw).map_err(|e| SyncError::InvalidFile(e.to_string()))?;
-        String::from_utf8(bytes).map_err(|e| SyncError::InvalidFile(e.to_string()))?
-    } else {
-        // Files over 1 MB come without inline content.
-        let resp = authorized(Request::get(&url), config, "application/vnd.github.raw+json")
+    let content = if file["truncated"].as_bool() == Some(true) {
+        let url = file["raw_url"].as_str().unwrap_or_default();
+        let resp = Request::get(url)
             .send()
             .await
-            .map_err(network)?;
-        if resp.status() != 200 {
-            return Err(error_for(resp).await);
-        }
-        resp.text().await.map_err(network)?
+            .map_err(|e| SyncError::Network(e.to_string()))?;
+        resp.text().await.map_err(|e| SyncError::Network(e.to_string()))?
+    } else {
+        file["content"].as_str().unwrap_or_default().to_string()
     };
-    let lib = serde_json::from_str(&text).map_err(|e| SyncError::InvalidFile(e.to_string()))?;
-    Ok(Some((lib, file.sha)))
-}
-
-async fn push(config: &SyncConfig, lib: &Library, sha: Option<&str>) -> Result<(), SyncError> {
-    let json = serde_json::to_string_pretty(lib).map_err(|e| SyncError::InvalidFile(e.to_string()))?;
-    let mut body = serde_json::json!({
-        "message": "Update library",
-        "content": BASE64.encode(json),
-        "branch": config.branch(),
-    });
-    if let Some(sha) = sha {
-        body["sha"] = sha.into();
+    if content.trim().is_empty() {
+        return Ok(None);
     }
-    let resp = authorized(Request::put(&config.url()), config, "application/vnd.github+json")
-        .header("Content-Type", "application/json")
-        .body(body.to_string())
-        .map_err(network)?
-        .send()
-        .await
-        .map_err(network)?;
-    match resp.status() {
-        200 | 201 => Ok(()),
-        _ => Err(error_for(resp).await),
-    }
+    serde_json::from_str(&content)
+        .map(Some)
+        .map_err(|e| SyncError::InvalidFile(e.to_string()))
 }
 
 #[cfg(test)]
@@ -394,14 +363,16 @@ mod tests {
 
     #[test]
     fn config_validation() {
-        let mut c = SyncConfig {
-            token: "t".into(),
-            repo: "me/refs".into(),
-            ..Default::default()
-        };
-        assert!(c.is_configured());
-        assert_eq!(c.url(), "https://api.github.com/repos/me/refs/contents/library.json");
-        c.repo = "refs".into();
-        assert!(!c.is_configured());
+        assert!(!SyncConfig::default().is_configured());
+        assert!(
+            SyncConfig {
+                token: "ghp_x".into(),
+                ..Default::default()
+            }
+            .is_configured()
+        );
+        let old: SyncConfig =
+            serde_json::from_str(r#"{"token":"t","repo":"me/refs","branch":"main","auto":true}"#).unwrap();
+        assert_eq!((old.token.as_str(), old.gist_id.as_str(), old.auto), ("t", "", true));
     }
 }
