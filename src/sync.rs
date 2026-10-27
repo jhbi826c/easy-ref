@@ -1,6 +1,6 @@
 //! Syncs the library with a JSON file in a GitHub repository.
 
-use crate::model::{Collection, Entry, Library, alpha_suffix, normalize_doi};
+use crate::model::{Collection, Entry, Library, disambiguate_key, normalize_doi};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use gloo_net::http::{Request, RequestBuilder, Response};
@@ -109,13 +109,7 @@ pub fn merge(a: &Library, b: &Library) -> Library {
 
     let mut keys: HashSet<String> = HashSet::new();
     for e in &mut entries {
-        if keys.contains(&e.key) {
-            let base = e.key.clone();
-            e.key = (0..)
-                .map(|n| format!("{base}{}", alpha_suffix(n)))
-                .find(|k| !keys.contains(k))
-                .unwrap();
-        }
+        e.key = disambiguate_key(&e.key, &e.title, |k| keys.contains(k));
         keys.insert(e.key.clone());
     }
 
@@ -384,7 +378,7 @@ mod tests {
         let mut b = Library::default();
         b.entries.push(entry("y", "10.1/b", "He2016CVPR", 2.0, 2.0));
         let keys: Vec<_> = merge(&a, &b).entries.into_iter().map(|e| e.key).collect();
-        assert_eq!(keys, ["He2016CVPR", "He2016CVPRa"]);
+        assert_eq!(keys, ["He2016CVPR", "He2016CVPRTitle"]);
     }
 
     #[test]

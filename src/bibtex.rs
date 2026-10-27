@@ -251,6 +251,20 @@ pub fn plain_title(title: &str) -> String {
     title.replace(['{', '}'], "")
 }
 
+const TITLE_STOPWORDS: [&str; 20] = [
+    "a", "an", "the", "on", "of", "for", "in", "to", "and", "with", "via", "from", "towards", "toward", "is", "are",
+    "how", "what", "why", "do",
+];
+
+/// First significant word of a title as used in keys, e.g. `Identity`.
+pub fn title_word(title: &str) -> String {
+    plain_title(title)
+        .split_whitespace()
+        .map(camel_ascii)
+        .find(|w| !w.is_empty() && !TITLE_STOPWORDS.contains(&w.to_lowercase().as_str()))
+        .unwrap_or_default()
+}
+
 fn latex_words(text: &str) -> String {
     let lead = if text.starts_with(char::is_whitespace) { " " } else { "" };
     let trail = if text.ends_with(char::is_whitespace) && !text.trim().is_empty() {

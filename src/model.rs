@@ -264,31 +264,21 @@ impl Library {
     }
 
     /// Appends `a`, `b`, ... to `base` until no other entry uses it.
-    pub fn unique_key(&self, base: &str, except_id: &str) -> String {
+    pub fn unique_key(&self, base: &str, title: &str, except_id: &str) -> String {
         let taken: HashSet<&str> = self
             .entries
             .iter()
             .filter(|e| e.id != except_id)
             .map(|e| e.key.as_str())
             .collect();
-        if !taken.contains(base) {
-            return base.to_string();
-        }
-        let mut n = 0usize;
-        loop {
-            let candidate = format!("{base}{}", alpha_suffix(n));
-            if !taken.contains(candidate.as_str()) {
-                return candidate;
-            }
-            n += 1;
-        }
+        disambiguate_key(base, title, |k| taken.contains(k))
     }
 
     pub fn add_entry(&mut self, mut entry: Entry, now: f64) -> AddOutcome {
         if let Some(existing) = self.find_duplicate(&entry) {
             return AddOutcome::Duplicate(existing.id.clone());
         }
-        entry.key = self.unique_key(&entry.key, &entry.id);
+        entry.key = self.unique_key(&entry.key, &entry.title, &entry.id);
         entry.added = now;
         entry.modified = now;
         let id = entry.id.clone();
@@ -297,7 +287,7 @@ impl Library {
     }
 
     pub fn update_entry(&mut self, mut entry: Entry, now: f64) {
-        entry.key = self.unique_key(&entry.key, &entry.id);
+        entry.key = self.unique_key(&entry.key, &entry.title, &entry.id);
         entry.modified = now;
         if let Some(slot) = self.entries.iter_mut().find(|e| e.id == entry.id) {
             *slot = entry;
@@ -572,6 +562,21 @@ impl Library {
     }
 }
 
+/// `base`, else `base` plus the first significant title word, else that with `a`, `b`, ... appended.
+pub fn disambiguate_key(base: &str, title: &str, taken: impl Fn(&str) -> bool) -> String {
+    if !taken(base) {
+        return base.to_string();
+    }
+    let stem = format!("{base}{}", crate::bibtex::title_word(title));
+    if stem != base && !taken(&stem) {
+        return stem;
+    }
+    (0..)
+        .map(|n| format!("{stem}{}", alpha_suffix(n)))
+        .find(|k| !taken(k))
+        .unwrap()
+}
+
 pub fn alpha_suffix(mut n: usize) -> String {
     let mut s = Vec::new();
     loop {
@@ -626,13 +631,29 @@ mod tests {
     }
 
     #[test]
-    fn unique_keys_get_suffixes() {
+    fn clashing_keys_use_title_word() {
         let mut lib = Library::default();
-        for (i, t) in ["A", "B", "C"].iter().enumerate() {
+        let titles = [
+            "Deep Residual Learning for Image Recognition",
+            "Identity Mappings in Deep Residual Networks",
+            "Deep Networks with Stochastic Depth",
+            "Deep Pyramid Networks",
+            "A",
+        ];
+        for (i, t) in titles.iter().enumerate() {
             lib.add_entry(entry(&i.to_string(), "", t, "He", "He2016CVPR"), 0.0);
         }
         let keys: Vec<_> = lib.entries.iter().map(|e| e.key.as_str()).collect();
-        assert_eq!(keys, ["He2016CVPR", "He2016CVPRa", "He2016CVPRb"]);
+        assert_eq!(
+            keys,
+            [
+                "He2016CVPR",
+                "He2016CVPRIdentity",
+                "He2016CVPRDeep",
+                "He2016CVPRDeepa",
+                "He2016CVPRa"
+            ]
+        );
         assert_eq!(alpha_suffix(26), "aa");
     }
 
