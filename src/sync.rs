@@ -83,10 +83,13 @@ pub fn merge(a: &Library, b: &Library) -> Library {
     });
     entries.sort_by(|x, y| x.added.total_cmp(&y.added).then_with(|| x.id.cmp(&y.id)));
 
+    // Live entries keep their keys before trashed ones.
     let mut keys: HashSet<String> = HashSet::new();
-    for e in &mut entries {
-        e.key = disambiguate_key(&e.key, &e.title, |k| keys.contains(k));
-        keys.insert(e.key.clone());
+    for trashed in [false, true] {
+        for e in entries.iter_mut().filter(|e| e.trashed.is_some() == trashed) {
+            e.key = disambiguate_key(&e.key, &e.title, |k| keys.contains(k));
+            keys.insert(e.key.clone());
+        }
     }
 
     let mut by_id: HashMap<String, Collection> = HashMap::new();
@@ -307,6 +310,21 @@ mod tests {
         let mut b = b;
         b.entries[0].modified = 3.0;
         assert_eq!(merge(&a, &b).entries.len(), 1);
+    }
+
+    #[test]
+    fn live_entry_keeps_key_over_trashed_entry() {
+        let mut a = Library::default();
+        let mut old = entry("old", "10.1/a", "He2016CVPR", 1.0, 2.0);
+        old.trashed = Some(2.0);
+        a.entries.push(old);
+        a.entries.push(entry("new", "10.1/b", "He2016CVPR", 3.0, 3.0));
+        let merged = merge(&a, &a);
+        let key = |id: &str| merged.entry(id).unwrap().key.clone();
+        assert_eq!(
+            (key("new"), key("old")),
+            ("He2016CVPR".to_string(), "He2016CVPRTitle".to_string())
+        );
     }
 
     #[test]

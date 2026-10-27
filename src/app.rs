@@ -953,12 +953,7 @@ pub fn import_bibtex(state: AppState, text: &str) -> bool {
                     id
                 }
                 AddOutcome::Duplicate(id) => {
-                    if l.entry(&id).is_some_and(|e| e.trashed.is_some()) {
-                        l.restore_entries(std::slice::from_ref(&id), now());
-                        added += 1;
-                    } else {
-                        skipped += 1;
-                    }
+                    skipped += 1;
                     id
                 }
             };
@@ -1033,21 +1028,10 @@ async fn run_queue(state: AppState) {
 }
 
 fn report_duplicate(state: AppState, id: &str, target: Option<&str>) {
-    let (key, trashed) = state.lib.with_untracked(|l| {
-        l.entry(id)
-            .map(|e| (e.key.clone(), e.trashed.is_some()))
-            .unwrap_or_default()
-    });
+    let key = state
+        .lib
+        .with_untracked(|l| l.entry(id).map(|e| e.key.clone()).unwrap_or_default());
     let t = state.t_untracked();
-    if trashed {
-        state.lib.update(|l| {
-            l.restore_entries(&[id.to_string()], now());
-            if let Some(cid) = target {
-                l.add_to_collection(cid, &[id.to_string()], now());
-            }
-        });
-        return state.notify(Level::Ok, (t.restored_from_trash)(&key));
-    }
     let Some(cid) = target else {
         return state.notify(Level::Warn, (t.dup_in_library)(&key));
     };

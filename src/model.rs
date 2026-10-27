@@ -242,13 +242,13 @@ impl Library {
         self.collections.iter_mut().find(|c| c.id == id)
     }
 
-    /// Same DOI, or same title and first author.
+    /// An entry outside the trash with the same DOI, or the same title and first author.
     pub fn find_duplicate(&self, candidate: &Entry) -> Option<&Entry> {
         let doi = normalize_doi(&candidate.doi);
         let title = normalize_title(&candidate.title);
         let family = candidate.first_author_family().to_lowercase();
         self.entries.iter().find(|e| {
-            if e.id == candidate.id {
+            if e.id == candidate.id || e.trashed.is_some() {
                 return false;
             }
             if !doi.is_empty() && normalize_doi(&e.doi) == doi {
@@ -258,17 +258,20 @@ impl Library {
         })
     }
 
+    /// An entry outside the trash with this DOI.
     pub fn find_by_doi(&self, doi: &str) -> Option<&Entry> {
         let doi = normalize_doi(doi);
-        self.entries.iter().find(|e| normalize_doi(&e.doi) == doi)
+        self.entries
+            .iter()
+            .find(|e| e.trashed.is_none() && normalize_doi(&e.doi) == doi)
     }
 
-    /// A key based on `base` that no other entry uses.
+    /// A key based on `base` that no other entry outside the trash uses.
     pub fn unique_key(&self, base: &str, title: &str, except_id: &str) -> String {
         let taken: HashSet<&str> = self
             .entries
             .iter()
-            .filter(|e| e.id != except_id)
+            .filter(|e| e.id != except_id && e.trashed.is_none())
             .map(|e| e.key.as_str())
             .collect();
         disambiguate_key(base, title, |k| taken.contains(k))
@@ -305,14 +308,24 @@ impl Library {
         }
     }
 
+    /// Restores entries from the trash, renaming keys that are now taken.
     pub fn restore_entries(&mut self, ids: &[String], now: f64) {
-        for e in self
+        let restored: Vec<String> = self
             .entries
-            .iter_mut()
+            .iter()
             .filter(|e| ids.contains(&e.id) && e.trashed.is_some())
-        {
-            e.trashed = None;
-            e.modified = now;
+            .map(|e| e.id.clone())
+            .collect();
+        for id in restored {
+            let Some((key, title)) = self.entry(&id).map(|e| (e.key.clone(), e.title.clone())) else {
+                continue;
+            };
+            let key = self.unique_key(&key, &title, &id);
+            if let Some(e) = self.entries.iter_mut().find(|e| e.id == id) {
+                e.trashed = None;
+                e.key = key;
+                e.modified = now;
+            }
         }
     }
 
@@ -686,6 +699,22 @@ mod tests {
             .into_iter()
             .map(|(c, depth)| format!("{}{}", "-".repeat(depth), c.id))
             .collect()
+    }
+
+    #[test]
+    fn trash_is_ignored_for_duplicates_and_keys() {
+        let mut lib = Library::default();
+        lib.add_entry(entry("old", "10.1/x", "Paper", "He", "He2016CVPR"), 0.0);
+        lib.trash_entries(&["old".into()], 1.0);
+        assert!(matches!(
+            lib.add_entry(entry("new", "10.1/x", "Paper", "He", "He2016CVPR"), 2.0),
+            AddOutcome::Added(_)
+        ));
+        assert_eq!(lib.entry("new").unwrap().key, "He2016CVPR");
+        assert!(lib.find_by_doi("10.1/X").is_some_and(|e| e.id == "new"));
+
+        lib.restore_entries(&["old".into()], 3.0);
+        assert_eq!(lib.entry("old").unwrap().key, "He2016CVPRPaper");
     }
 
     #[test]
