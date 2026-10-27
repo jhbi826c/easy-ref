@@ -164,6 +164,10 @@ pub struct Strings {
     pub create_token: &'static str,
     pub open_gist: &'static str,
     pub open_link: &'static str,
+    pub refresh_from_doi: &'static str,
+    pub fetching_doi: &'static str,
+    pub updated_from_doi: fn(&str, &str) -> String,
+    pub doi_taken: fn(&str) -> String,
     pub auto_sync: &'static str,
     pub save_and_sync: &'static str,
     pub disconnect: &'static str,
@@ -335,6 +339,16 @@ pub const ZH: Strings = Strings {
     create_token: "创建 token ↗",
     open_gist: "打开 Gist ↗",
     open_link: "在新标签页打开",
+    refresh_from_doi: "按 DOI 重新获取信息（保留 key）",
+    fetching_doi: "正在根据 DOI 获取信息…",
+    updated_from_doi: |old, new| {
+        if old == new {
+            format!("已根据 DOI 更新 {new}")
+        } else {
+            format!("已根据 DOI 更新：{old} → {new}")
+        }
+    },
+    doi_taken: |key| format!("这个 DOI 已属于 {key}"),
     auto_sync: "修改后自动同步",
     save_and_sync: "保存并同步",
     disconnect: "断开",
@@ -518,6 +532,16 @@ pub const EN: Strings = Strings {
     create_token: "Create a token ↗",
     open_gist: "Open gist ↗",
     open_link: "Open in a new tab",
+    refresh_from_doi: "Fetch metadata for this DOI again (keeps the key)",
+    fetching_doi: "Fetching metadata for the DOI…",
+    updated_from_doi: |old, new| {
+        if old == new {
+            format!("Updated {new} from its DOI")
+        } else {
+            format!("Updated from the DOI: {old} → {new}")
+        }
+    },
+    doi_taken: |key| format!("This DOI already belongs to {key}"),
     auto_sync: "Sync automatically after changes",
     save_and_sync: "Save and sync",
     disconnect: "Disconnect",

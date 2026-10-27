@@ -1,10 +1,12 @@
 use crate::app::{AppState, Level};
 use crate::bibtex;
 use crate::i18n::Strings;
-use crate::model::{Entry, EntryType, Person};
+use crate::metadata;
+use crate::model::{Entry, EntryType, Person, normalize_doi};
 use crate::storage::now;
-use leptos::ev::Event;
+use leptos::ev::{Event, MouseEvent};
 use leptos::prelude::*;
+use leptos::task::spawn_local;
 use std::collections::HashSet;
 
 type Label = fn(&Strings) -> &'static str;
@@ -69,6 +71,60 @@ pub fn EntryEditor(id: String) -> impl IntoView {
     let restore = move |_| {
         state.lib.update(|l| l.restore_entries(&[id.get_value()], now()));
         state.notify(Level::Ok, (state.t_untracked().restored)(1));
+    };
+
+    let fetching = RwSignal::new(false);
+    // Replaces the entry's metadata with what the DOI resolves to.
+    let refresh_from_doi = move |raw: String, keep_key: bool| {
+        let Some(doi) = crate::doi::parse_token(raw.trim()) else {
+            return;
+        };
+        let entry_id = id.get_value();
+        let t = state.t_untracked();
+        let taken = state
+            .lib
+            .with_untracked(|l| l.find_by_doi(&doi).filter(|e| e.id != entry_id).map(|e| e.key.clone()));
+        if let Some(other) = taken {
+            return state.notify(Level::Warn, (t.doi_taken)(&other));
+        }
+        fetching.set(true);
+        spawn_local(async move {
+            let result = metadata::lookup(&doi).await;
+            let _ = fetching.try_set(false);
+            let mut fetched = match result {
+                Ok(e) => e,
+                Err(e) => return state.notify(Level::Error, (t.lookup_failed)(&doi, &e)),
+            };
+            let Some(current) = state.lib.with_untracked(|l| l.entry(&entry_id).cloned()) else {
+                return;
+            };
+            fetched.id = current.id.clone();
+            fetched.added = current.added;
+            fetched.trashed = current.trashed;
+            fetched.key = if keep_key {
+                current.key.clone()
+            } else {
+                bibtex::cite_key(&fetched)
+            };
+            state.lib.update(|l| l.update_entry(fetched, now()));
+            if let Some(saved) = state.lib.with_untracked(|l| l.entry(&entry_id).cloned()) {
+                let _ = authors.try_set(authors_text(&saved));
+                let _ = year.try_set(saved.year.map(|y| y.to_string()).unwrap_or_default());
+                state.notify(Level::Ok, (t.updated_from_doi)(&current.key, &saved.key));
+                let _ = draft.try_set(saved);
+            }
+        });
+    };
+    let on_doi_change = move |ev: Event| {
+        let value = event_target_value(&ev);
+        let saved = state.lib.with_untracked(|l| {
+            l.entry(&id.get_value())
+                .map(|e| normalize_doi(&e.doi))
+                .unwrap_or_default()
+        });
+        if crate::doi::parse_token(value.trim()).is_some_and(|d| normalize_doi(&d) != saved) {
+            refresh_from_doi(value, false);
+        }
     };
 
     let text_field = move |label: Label, get: fn(&Entry) -> &String, set: fn(&mut Entry, String)| {
@@ -241,7 +297,40 @@ pub fn EntryEditor(id: String) -> impl IntoView {
                     {text_field(|t| t.field_publisher, |e| &e.publisher, |e, v| e.publisher = v)}
                     {text_field(|t| t.field_address, |e| &e.address, |e, v| e.address = v)}
                 </div>
-                {link_field("DOI", |e| &e.doi, |e, v| e.doi = v, doi_url)}
+                <label class="field">
+                    <span>"DOI"</span>
+                    <div class="row">
+                        <input
+                            prop:value=move || draft.with(|d| d.doi.clone())
+                            on:input=move |ev| draft.update(|d| d.doi = event_target_value(&ev))
+                            on:change=on_doi_change
+                        />
+                        {move || {
+                            draft
+                                .with(|d| doi_url(d.doi.trim()))
+                                .map(|url| {
+                                    view! {
+                                        <a class="button" href=url target="_blank" rel="noopener" title=move || t().open_link>
+                                            "↗"
+                                        </a>
+                                        <button
+                                            title=move || t().refresh_from_doi
+                                            disabled=move || fetching.get()
+                                            on:click=move |ev: MouseEvent| {
+                                                ev.prevent_default();
+                                                refresh_from_doi(draft.with_untracked(|d| d.doi.clone()), true);
+                                            }
+                                        >
+                                            {move || if fetching.get() { "…" } else { "⟳" }}
+                                        </button>
+                                    }
+                                })
+                        }}
+                    </div>
+                    <Show when=move || fetching.get()>
+                        <span class="muted small">{move || t().fetching_doi}</span>
+                    </Show>
+                </label>
                 {link_field("URL", |e| &e.url, |e, v| e.url = v, web_url)}
                 <div class="grid2">
                     {text_field(|t| t.field_arxiv_id, |e| &e.eprint, |e, v| e.eprint = v)}
