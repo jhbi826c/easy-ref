@@ -6,7 +6,7 @@ use crate::export::{Export, ExportDialog};
 use crate::i18n::{Lang, Strings};
 use crate::metadata;
 use crate::model::{AddOutcome, Entry, EntryType, Library, View};
-use crate::settings::{SettingsDialog, Theme};
+use crate::settings::{self, SettingsDialog, Theme};
 use crate::storage::{self, new_id, now};
 use crate::sync::{self, SyncConfig, SyncError};
 use crate::table::{EntryTable, SortColumn};
@@ -229,12 +229,7 @@ pub fn App() -> impl IntoView {
     Effect::new(move |_| {
         let theme = state.theme.get();
         storage::save(storage::THEME_KEY, &theme);
-        if let Some(root) = document().document_element() {
-            let _ = match theme.attr() {
-                Some(value) => root.set_attribute("data-theme", value),
-                None => root.remove_attribute("data-theme"),
-            };
-        }
+        settings::apply_theme(theme);
     });
     Effect::new(move |_| {
         state.view.track();

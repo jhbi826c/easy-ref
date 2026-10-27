@@ -30,6 +30,34 @@ impl Theme {
     }
 }
 
+/// Title bar colors; same values as in index.html.
+const BAR_LIGHT: &str = "#f6f7f9";
+const BAR_DARK: &str = "#1d2027";
+
+/// Applies the theme to the page and to the browser or installed app title bar.
+pub fn apply_theme(theme: Theme) {
+    let doc = document();
+    if let Some(root) = doc.document_element() {
+        let _ = match theme.attr() {
+            Some(value) => root.set_attribute("data-theme", value),
+            None => root.remove_attribute("data-theme"),
+        };
+    }
+    let Ok(metas) = doc.query_selector_all("meta[name=theme-color]") else {
+        return;
+    };
+    for meta in (0..metas.length()).filter_map(|i| metas.item(i)?.dyn_into::<web_sys::Element>().ok()) {
+        let for_dark = meta.get_attribute("media").is_some_and(|m| m.contains("dark"));
+        let color = match theme {
+            Theme::Light => BAR_LIGHT,
+            Theme::Dark => BAR_DARK,
+            Theme::System if for_dark => BAR_DARK,
+            Theme::System => BAR_LIGHT,
+        };
+        let _ = meta.set_attribute("content", color);
+    }
+}
+
 #[component]
 pub fn SettingsDialog() -> impl IntoView {
     let state = expect_context::<AppState>();
