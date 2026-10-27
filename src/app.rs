@@ -217,7 +217,7 @@ pub fn App() -> impl IntoView {
         exporting: RwSignal::new(None),
         notices: RwSignal::new(vec![]),
         search: RwSignal::new(String::new()),
-        sort: RwSignal::new((SortColumn::Added, false)),
+        sort: RwSignal::new((SortColumn::Year, false)),
         dragging: RwSignal::new(vec![]),
         dragging_collection: RwSignal::new(None),
         queue: RwSignal::new(VecDeque::new()),
