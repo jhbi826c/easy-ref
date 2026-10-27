@@ -728,6 +728,10 @@ table.entries {
   gap: 4px;
 }
 
+.check.implied {
+  color: var(--muted);
+}
+
 .bib-preview {
   margin: 0;
   padding: 10px;

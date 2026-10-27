@@ -5,6 +5,7 @@ use crate::model::{Entry, EntryType, Person};
 use crate::storage::now;
 use leptos::ev::Event;
 use leptos::prelude::*;
+use std::collections::HashSet;
 
 type Label = fn(&Strings) -> &'static str;
 
@@ -111,21 +112,37 @@ pub fn EntryEditor(id: String) -> impl IntoView {
 
     let memberships = move || {
         state.lib.with(|l| {
+            let entry_id = id.get_value();
+            let direct: HashSet<&str> = l
+                .collections
+                .iter()
+                .filter(|c| c.entries.contains(&entry_id))
+                .map(|c| c.id.as_str())
+                .collect();
             l.tree()
                 .into_iter()
-                .map(|(c, _)| {
+                .map(|(c, depth)| {
                     let cid = c.id.clone();
-                    let member = c.entries.contains(&id.get_value());
+                    let is_direct = direct.contains(c.id.as_str());
+                    let via_child = !is_direct && l.descendants(&c.id).iter().any(|d| direct.contains(d.as_str()));
+                    // Unticking removes the entry from this collection and everything below it.
                     let on_change = move |ev: Event| {
-                        let member = event_target_checked(&ev);
-                        state
-                            .lib
-                            .update(|l| l.set_membership(&cid, &id.get_value(), member, now()));
+                        let ids = [id.get_value()];
+                        if event_target_checked(&ev) {
+                            state.lib.update(|l| l.set_membership(&cid, &ids[0], true, now()));
+                        } else {
+                            state.lib.update(|l| l.remove_from_collection(&cid, &ids, now()));
+                        }
                     };
                     view! {
-                        <label class="check">
-                            <input type="checkbox" prop:checked=member on:change=on_change />
-                            {l.collection_path(&c.id)}
+                        <label
+                            class="check"
+                            class:implied=via_child
+                            style=format!("padding-left: {}px", depth * 18)
+                            title=move || if via_child { t().in_subcollection } else { "" }
+                        >
+                            <input type="checkbox" prop:checked=is_direct || via_child on:change=on_change />
+                            {c.name.clone()}
                         </label>
                     }
                 })
