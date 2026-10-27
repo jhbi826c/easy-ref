@@ -12,6 +12,14 @@ fn parse_authors(text: &str) -> Vec<Person> {
     text.lines().filter_map(Person::from_line).collect()
 }
 
+fn doi_url(doi: &str) -> Option<String> {
+    crate::doi::parse_token(doi).map(|d| format!("https://doi.org/{d}"))
+}
+
+fn web_url(url: &str) -> Option<String> {
+    (url.starts_with("https://") || url.starts_with("http://")).then(|| url.to_string())
+}
+
 fn authors_text(e: &Entry) -> String {
     e.authors.iter().map(Person::to_line).collect::<Vec<_>>().join("\n")
 }
@@ -70,6 +78,33 @@ pub fn EntryEditor(id: String) -> impl IntoView {
                     prop:value=move || draft.with(|d| get(d).clone())
                     on:input=move |ev| draft.update(|d| set(d, event_target_value(&ev)))
                 />
+            </label>
+        }
+    };
+    let link_field = move |label: &'static str,
+                           get: fn(&Entry) -> &String,
+                           set: fn(&mut Entry, String),
+                           href: fn(&str) -> Option<String>| {
+        let target = move || draft.with(|d| href(get(d).trim()));
+        view! {
+            <label class="field">
+                <span>{label}</span>
+                <div class="row">
+                    <input
+                        prop:value=move || draft.with(|d| get(d).clone())
+                        on:input=move |ev| draft.update(|d| set(d, event_target_value(&ev)))
+                    />
+                    {move || {
+                        target()
+                            .map(|url| {
+                                view! {
+                                    <a class="button" href=url target="_blank" rel="noopener" title=move || t().open_link>
+                                        "↗"
+                                    </a>
+                                }
+                            })
+                    }}
+                </div>
             </label>
         }
     };
@@ -189,8 +224,8 @@ pub fn EntryEditor(id: String) -> impl IntoView {
                     {text_field(|t| t.field_publisher, |e| &e.publisher, |e, v| e.publisher = v)}
                     {text_field(|t| t.field_address, |e| &e.address, |e, v| e.address = v)}
                 </div>
-                {text_field(|_| "DOI", |e| &e.doi, |e, v| e.doi = v)}
-                {text_field(|_| "URL", |e| &e.url, |e, v| e.url = v)}
+                {link_field("DOI", |e| &e.doi, |e, v| e.doi = v, doi_url)}
+                {link_field("URL", |e| &e.url, |e, v| e.url = v, web_url)}
                 <div class="grid2">
                     {text_field(|t| t.field_arxiv_id, |e| &e.eprint, |e, v| e.eprint = v)}
                     {text_field(|t| t.field_arxiv_class, |e| &e.primary_class, |e, v| e.primary_class = v)}

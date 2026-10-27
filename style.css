@@ -112,6 +112,22 @@ button:hover {
   background: var(--bg-hover);
 }
 
+a.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-soft);
+  color: var(--text);
+  text-decoration: none;
+}
+
+a.button:hover {
+  background: var(--bg-hover);
+}
+
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
