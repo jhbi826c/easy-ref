@@ -430,18 +430,32 @@ button.icon:hover {
 .toolbar {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: 8px;
   padding: 10px 16px;
+}
+
+.toolbar > * {
+  flex-shrink: 0;
 }
 
 .toolbar h1 {
   font-size: 17px;
   margin: 0 8px 0 0;
+  min-width: 0;
+  flex-shrink: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .toolbar .search {
   width: 260px;
+  min-width: 120px;
+  flex-shrink: 1;
+}
+
+.toolbar .spacer {
+  flex-shrink: 1;
 }
 
 .selcount {
@@ -1000,6 +1014,10 @@ button:disabled {
 
   .entries td.col-title {
     white-space: normal;
+  }
+
+  .toolbar {
+    flex-wrap: wrap;
   }
 
   .toolbar .search {
