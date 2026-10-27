@@ -942,6 +942,7 @@ pub fn import_bibtex(state: AppState, text: &str) -> bool {
     }
     let target = state.current_collection();
     let (mut added, mut skipped) = (0, 0);
+    let mut replaced = Vec::new();
     state.lib.update(|l| {
         for r in &raw {
             let mut entry = bibparse::to_entry(r);
@@ -956,13 +957,22 @@ pub fn import_bibtex(state: AppState, text: &str) -> bool {
                     skipped += 1;
                     id
                 }
+                AddOutcome::Replaced { id, old_key } => {
+                    replaced.push((old_key, l.entry(&id).map(|e| e.key.clone()).unwrap_or_default()));
+                    id
+                }
             };
             if let Some(cid) = &target {
                 l.add_to_collection(cid, &[id], now());
             }
         }
     });
-    state.notify(Level::Ok, (t.imported)(added, skipped));
+    if added > 0 || skipped > 0 {
+        state.notify(Level::Ok, (t.imported)(added, skipped));
+    }
+    for (old_key, new_key) in replaced {
+        state.notify(Level::Ok, (t.replaced)(&old_key, &new_key));
+    }
     errors.is_empty()
 }
 
@@ -1018,6 +1028,17 @@ async fn run_queue(state: AppState) {
                 added += 1;
             }
             Some(AddOutcome::Duplicate(id)) => report_duplicate(state, &id, target.as_deref()),
+            Some(AddOutcome::Replaced { id, old_key }) => {
+                let new_key = state
+                    .lib
+                    .with_untracked(|l| l.entry(&id).map(|e| e.key.clone()).unwrap_or_default());
+                if let Some(cid) = &target {
+                    state.lib.update(|l| {
+                        l.add_to_collection(cid, std::slice::from_ref(&id), now());
+                    });
+                }
+                state.notify(Level::Ok, (state.t_untracked().replaced)(&old_key, &new_key));
+            }
             None => {}
         }
     }

@@ -55,6 +55,7 @@ pub struct Strings {
     pub confirm_empty_trash: fn(usize) -> String,
     pub moved_to_trash: fn(usize) -> String,
     pub restored: fn(usize) -> String,
+    pub replaced: fn(&str, &str) -> String,
     pub collections: &'static str,
     pub new_collection: &'static str,
     pub new_subcollection: &'static str,
@@ -185,6 +186,13 @@ pub const ZH: Strings = Strings {
     confirm_empty_trash: |n| format!("彻底删除回收站中的 {n} 条？此操作无法撤销。"),
     moved_to_trash: |n| format!("{n} 条已移到回收站"),
     restored: |n| format!("已恢复 {n} 条"),
+    replaced: |old, new| {
+        if old == new {
+            format!("{old} 已更新为新版本")
+        } else {
+            format!("{old} 已更新为新版本：{new}")
+        }
+    },
     collections: "目录",
     new_collection: "新建目录",
     new_subcollection: "新建子目录",
@@ -355,6 +363,13 @@ pub const EN: Strings = Strings {
     confirm_empty_trash: |n| format!("Permanently delete the {n} entries in the trash? This cannot be undone."),
     moved_to_trash: |n| format!("Moved {n} to the trash"),
     restored: |n| format!("Restored {n}"),
+    replaced: |old, new| {
+        if old == new {
+            format!("Updated {old} to the newer version")
+        } else {
+            format!("Updated {old} to the newer version {new}")
+        }
+    },
     collections: "Collections",
     new_collection: "New collection",
     new_subcollection: "New subcollection",

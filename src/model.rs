@@ -215,6 +215,11 @@ pub enum View {
 pub enum AddOutcome {
     Added(String),
     Duplicate(String),
+    /// Same paper with a different DOI; the existing entry now holds the new metadata.
+    Replaced {
+        id: String,
+        old_key: String,
+    },
 }
 
 pub fn normalize_doi(doi: &str) -> String {
@@ -278,8 +283,26 @@ impl Library {
     }
 
     pub fn add_entry(&mut self, mut entry: Entry, now: f64) -> AddOutcome {
-        if let Some(existing) = self.find_duplicate(&entry) {
+        if let Some(existing) = Some(&entry.doi)
+            .filter(|d| !d.trim().is_empty())
+            .and_then(|d| self.find_by_doi(d))
+        {
             return AddOutcome::Duplicate(existing.id.clone());
+        }
+        if let Some(existing) = self.find_duplicate(&entry) {
+            if entry.doi.trim().is_empty() {
+                return AddOutcome::Duplicate(existing.id.clone());
+            }
+            let (id, old_key, added) = (existing.id.clone(), existing.key.clone(), existing.added);
+            entry.key = self.unique_key(&entry.key, &entry.title, &id);
+            entry.id = id.clone();
+            entry.added = added;
+            entry.modified = now;
+            entry.trashed = None;
+            if let Some(slot) = self.entries.iter_mut().find(|e| e.id == id) {
+                *slot = entry;
+            }
+            return AddOutcome::Replaced { id, old_key };
         }
         entry.key = self.unique_key(&entry.key, &entry.title, &entry.id);
         entry.added = now;
@@ -699,6 +722,50 @@ mod tests {
             .into_iter()
             .map(|(c, depth)| format!("{}{}", "-".repeat(depth), c.id))
             .collect()
+    }
+
+    #[test]
+    fn new_doi_replaces_same_paper() {
+        let mut lib = Library::default();
+        let mut preprint = entry(
+            "a",
+            "10.48550/arXiv.1706.03762",
+            "Attention Is All You Need",
+            "Vaswani",
+            "Vaswani2017arXiv",
+        );
+        preprint.venue = "arXiv".into();
+        lib.add_entry(preprint, 1.0);
+        lib.create_collection("c".into(), "C", None, 1.0);
+        lib.add_to_collection("c", &["a".into()], 1.0);
+
+        let mut published = entry(
+            "b",
+            "10.5555/3295222.3295349",
+            "Attention is all you need",
+            "Vaswani",
+            "Vaswani2017NeurIPS",
+        );
+        published.venue = "NeurIPS".into();
+        assert_eq!(
+            lib.add_entry(published.clone(), 2.0),
+            AddOutcome::Replaced {
+                id: "a".into(),
+                old_key: "Vaswani2017arXiv".into()
+            }
+        );
+        let e = lib.entry("a").unwrap();
+        assert_eq!(
+            (lib.entries.len(), e.venue.as_str(), e.key.as_str(), e.added),
+            (1, "NeurIPS", "Vaswani2017NeurIPS", 1.0)
+        );
+        assert_eq!(lib.collection("c").unwrap().entries, ["a"]);
+
+        assert_eq!(lib.add_entry(published, 3.0), AddOutcome::Duplicate("a".into()));
+        assert_eq!(
+            lib.add_entry(entry("c", "", "Attention is all you need", "Vaswani", "K"), 3.0),
+            AddOutcome::Duplicate("a".into())
+        );
     }
 
     #[test]
