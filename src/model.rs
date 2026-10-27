@@ -878,6 +878,23 @@ mod tests {
     }
 
     #[test]
+    fn entries_show_up_in_every_ancestor() {
+        let mut lib = Library::default();
+        lib.add_entry(entry("e", "", "Deep paper", "A", "k"), 0.0);
+        lib.create_collection("topic".into(), "Topic", None, 0.0);
+        lib.create_collection("sub".into(), "Sub", Some("topic"), 0.0);
+        lib.create_collection("deep".into(), "Deep", Some("sub"), 0.0);
+        lib.create_collection("other".into(), "Other", None, 0.0);
+        lib.add_to_collection("deep", &["e".into()], 0.0);
+        let has = |lib: &Library, cid: &str| !lib.entries_in(&View::Collection(cid.into())).is_empty();
+        assert!(has(&lib, "deep") && has(&lib, "sub") && has(&lib, "topic"));
+        assert!(!has(&lib, "other"));
+
+        lib.move_collection("deep", "other", Place::Inside, 1.0);
+        assert!(has(&lib, "other") && !has(&lib, "topic"));
+    }
+
+    #[test]
     fn tree_survives_cycles_and_missing_parents() {
         let mut lib = Library::default();
         lib.create_collection("a".into(), "A", None, 0.0);
