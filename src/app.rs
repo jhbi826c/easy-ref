@@ -142,14 +142,43 @@ impl AppState {
     pub fn current_collection(&self) -> Option<String> {
         match self.view.get_untracked() {
             View::Collection(id) => Some(id),
-            View::Library => None,
+            View::Library | View::Trash => None,
         }
     }
 
     pub fn view_name(&self) -> String {
         match self.view.get() {
             View::Library => self.t().library.into(),
+            View::Trash => self.t().trash.into(),
             View::Collection(id) => self.lib.with(|l| l.collection_path(&id)),
+        }
+    }
+
+    pub fn in_trash(&self) -> bool {
+        self.view.with(|v| *v == View::Trash)
+    }
+
+    /// Moves entries to the trash, or deletes them for good when they already are there.
+    pub fn delete_entries(&self, ids: Vec<String>) {
+        let t = self.t_untracked();
+        let in_trash = self
+            .lib
+            .with_untracked(|l| ids.iter().all(|id| l.entry(id).is_some_and(|e| e.trashed.is_some())));
+        if in_trash {
+            if !window()
+                .confirm_with_message(&(t.confirm_delete_entries)(ids.len()))
+                .unwrap_or(false)
+            {
+                return;
+            }
+            self.lib.update(|l| l.delete_entries(&ids, now()));
+        } else {
+            self.lib.update(|l| l.trash_entries(&ids, now()));
+            self.notify(Level::Ok, (t.moved_to_trash)(ids.len()));
+        }
+        self.selected.set(HashSet::new());
+        if self.editing.get_untracked().is_some_and(|e| ids.contains(&e)) {
+            self.editing.set(None);
         }
     }
 
@@ -167,7 +196,7 @@ impl AppState {
             .lib
             .with_untracked(|l| l.entries_in(&view).iter().map(|e| e.id.clone()).collect());
         let name = match view {
-            View::Library => "library".into(),
+            View::Library | View::Trash => "library".into(),
             View::Collection(id) => name_for(*self, &id),
         };
         Export { ids, name }
@@ -364,6 +393,7 @@ fn SidebarFooter() -> impl IntoView {
     let state = expect_context::<AppState>();
     view! {
         <div class="sidebar-footer">
+            <TrashItem />
             <SyncIndicator />
             <button class="nav-item footer-button" on:click=move |_| state.settings_open.set(true)>
                 <IconSettings />
@@ -409,7 +439,7 @@ fn Sidebar() -> impl IntoView {
     let collapsed = RwSignal::new(storage::load::<HashSet<String>>(storage::COLLAPSED_KEY));
     Effect::new(move |_| collapsed.with(|c| storage::save(storage::COLLAPSED_KEY, c)));
 
-    let total = move || state.lib.with(|l| l.entries.len());
+    let total = move || state.lib.with(|l| l.entries_in(&View::Library).len());
     let create = move |name: Option<String>| {
         let parent = creating.get_untracked().flatten();
         creating.set(None);
@@ -691,6 +721,52 @@ fn CollectionItem(
 }
 
 #[component]
+fn TrashItem() -> impl IntoView {
+    let state = expect_context::<AppState>();
+    let hover = RwSignal::new(false);
+    let count = move || state.lib.with(|l| l.entries_in(&View::Trash).len());
+    let on_drop = move |ev: DragEvent| {
+        ev.prevent_default();
+        hover.set(false);
+        let ids = state.dragging.get_untracked();
+        if !ids.is_empty() && state.view.get_untracked() != View::Trash {
+            state.delete_entries(ids);
+        }
+    };
+    view! {
+        <div
+            class="nav-item trash"
+            class:active=move || state.view.get() == View::Trash
+            class:drophover=move || hover.get()
+            on:click=move |_| state.view.set(View::Trash)
+            on:dragover=move |ev: DragEvent| {
+                if state.dragging_collection.get_untracked().is_none() {
+                    ev.prevent_default();
+                    hover.set(true);
+                }
+            }
+            on:dragleave=move |_| hover.set(false)
+            on:drop=on_drop
+        >
+            <IconTrash />
+            <span class="name">{move || state.t().trash}</span>
+            <span class="count">{count}</span>
+        </div>
+    }
+}
+
+#[component]
+fn IconTrash() -> impl IntoView {
+    view! {
+        <svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 6h18" />
+            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+        </svg>
+    }
+}
+
+#[component]
 fn IconLibrary() -> impl IntoView {
     view! {
         <svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -852,7 +928,12 @@ pub fn import_bibtex(state: AppState, text: &str) -> bool {
                     id
                 }
                 AddOutcome::Duplicate(id) => {
-                    skipped += 1;
+                    if l.entry(&id).is_some_and(|e| e.trashed.is_some()) {
+                        l.restore_entries(std::slice::from_ref(&id), now());
+                        added += 1;
+                    } else {
+                        skipped += 1;
+                    }
                     id
                 }
             };
@@ -927,10 +1008,21 @@ async fn run_queue(state: AppState) {
 }
 
 fn report_duplicate(state: AppState, id: &str, target: Option<&str>) {
-    let key = state
-        .lib
-        .with_untracked(|l| l.entry(id).map(|e| e.key.clone()).unwrap_or_default());
+    let (key, trashed) = state.lib.with_untracked(|l| {
+        l.entry(id)
+            .map(|e| (e.key.clone(), e.trashed.is_some()))
+            .unwrap_or_default()
+    });
     let t = state.t_untracked();
+    if trashed {
+        state.lib.update(|l| {
+            l.restore_entries(&[id.to_string()], now());
+            if let Some(cid) = target {
+                l.add_to_collection(cid, &[id.to_string()], now());
+            }
+        });
+        return state.notify(Level::Ok, (t.restored_from_trash)(&key));
+    }
     let Some(cid) = target else {
         return state.notify(Level::Warn, (t.dup_in_library)(&key));
     };
@@ -974,15 +1066,25 @@ fn Toolbar() -> impl IntoView {
             state.selected.set(HashSet::new());
         }
     };
-    let delete = move |_| {
+    let delete = move |_| state.delete_entries(selection());
+    let restore = move |_| {
         let ids = selection();
-        let msg = (state.t_untracked().confirm_delete_entries)(ids.len());
-        if window().confirm_with_message(&msg).unwrap_or(false) {
+        state.lib.update(|l| l.restore_entries(&ids, now()));
+        state.selected.set(HashSet::new());
+        state.notify(Level::Ok, (state.t_untracked().restored)(ids.len()));
+    };
+    let trash_count = move || state.lib.with(|l| l.entries_in(&View::Trash).len());
+    let empty_trash = move |_| {
+        let ids: Vec<String> = state
+            .lib
+            .with_untracked(|l| l.entries_in(&View::Trash).iter().map(|e| e.id.clone()).collect());
+        if window()
+            .confirm_with_message(&(state.t_untracked().confirm_empty_trash)(ids.len()))
+            .unwrap_or(false)
+        {
             state.lib.update(|l| l.delete_entries(&ids, now()));
             state.selected.set(HashSet::new());
-            if state.editing.get_untracked().is_some_and(|e| ids.contains(&e)) {
-                state.editing.set(None);
-            }
+            state.editing.set(None);
         }
     };
     let file_input = NodeRef::<leptos::html::Input>::new();
@@ -1040,45 +1142,63 @@ fn Toolbar() -> impl IntoView {
             <div class="spacer"></div>
             <Show when=move || { count() > 0 }>
                 <span class="selcount">{move || (state.t().n_selected)(count())}</span>
-                <select on:change=add_to>
-                    <option value="">{move || state.t().add_to_collection}</option>
-                    {move || {
-                        state
-                            .lib
-                            .with(|l| {
-                                l.tree()
-                                    .into_iter()
-                                    .map(|(c, _)| {
-                                        view! { <option value=c.id.clone()>{l.collection_path(&c.id)}</option> }
-                                    })
-                                    .collect_view()
-                            })
-                    }}
-                </select>
-                <Show when=in_collection>
-                    <button on:click=remove_from>{move || state.t().remove_from_collection}</button>
+                <Show
+                    when=move || !state.in_trash()
+                    fallback=move || view! { <button on:click=restore>{move || state.t().restore}</button> }
+                >
+                    <select on:change=add_to>
+                        <option value="">{move || state.t().add_to_collection}</option>
+                        {move || {
+                            state
+                                .lib
+                                .with(|l| {
+                                    l.tree()
+                                        .into_iter()
+                                        .map(|(c, _)| {
+                                            view! { <option value=c.id.clone()>{l.collection_path(&c.id)}</option> }
+                                        })
+                                        .collect_view()
+                                })
+                        }}
+                    </select>
+                    <Show when=in_collection>
+                        <button on:click=remove_from>{move || state.t().remove_from_collection}</button>
+                    </Show>
                 </Show>
                 <button class="danger" on:click=delete>
-                    {move || state.t().delete}
+                    {move || if state.in_trash() { state.t().delete_forever } else { state.t().delete }}
                 </button>
             </Show>
-            <input
-                class="hidden"
-                type="file"
-                accept=".bib,.bibtex,text/x-bibtex,text/plain"
-                multiple
-                node_ref=file_input
-                on:change=import_files
-            />
-            <button on:click=move |_| {
-                if let Some(el) = file_input.get_untracked() {
-                    el.click();
+            <Show
+                when=move || !state.in_trash()
+                fallback=move || {
+                    view! {
+                        <Show when=move || { trash_count() > 0 }>
+                            <button class="danger" on:click=empty_trash>
+                                {move || state.t().empty_trash}
+                            </button>
+                        </Show>
+                    }
                 }
-            }>{move || state.t().import_bib}</button>
-            <button on:click=new_entry>{move || state.t().new_entry}</button>
-            <button class="primary" on:click=export>
-                {move || if count() > 0 { state.t().export_selected } else { state.t().export_bibtex }}
-            </button>
+            >
+                <input
+                    class="hidden"
+                    type="file"
+                    accept=".bib,.bibtex,text/x-bibtex,text/plain"
+                    multiple
+                    node_ref=file_input
+                    on:change=import_files
+                />
+                <button on:click=move |_| {
+                    if let Some(el) = file_input.get_untracked() {
+                        el.click();
+                    }
+                }>{move || state.t().import_bib}</button>
+                <button on:click=new_entry>{move || state.t().new_entry}</button>
+                <button class="primary" on:click=export>
+                    {move || if count() > 0 { state.t().export_selected } else { state.t().export_bibtex }}
+                </button>
+            </Show>
         </div>
     }
 }

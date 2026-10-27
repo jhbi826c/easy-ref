@@ -79,7 +79,12 @@ pub fn merge(a: &Library, b: &Library) -> Library {
         .into_values()
         .filter(|e| alive(&deleted, &e.id, e.modified))
         .collect();
-    entries.sort_by(|x, y| x.added.total_cmp(&y.added).then_with(|| x.id.cmp(&y.id)));
+    // Live copies before trashed ones, then oldest first.
+    entries.sort_by(|x, y| {
+        (x.trashed.is_some(), x.added, &x.id)
+            .partial_cmp(&(y.trashed.is_some(), y.added, &y.id))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let mut first_with_doi: HashMap<String, String> = HashMap::new();
     let mut replaced: HashMap<String, String> = HashMap::new();
@@ -100,6 +105,7 @@ pub fn merge(a: &Library, b: &Library) -> Library {
             }
         }
     });
+    entries.sort_by(|x, y| x.added.total_cmp(&y.added).then_with(|| x.id.cmp(&y.id)));
 
     let mut keys: HashSet<String> = HashSet::new();
     for e in &mut entries {
@@ -338,6 +344,21 @@ mod tests {
         let mut b = b;
         b.entries[0].modified = 3.0;
         assert_eq!(merge(&a, &b).entries.len(), 1);
+    }
+
+    #[test]
+    fn live_copy_wins_over_trashed_copy_of_same_doi() {
+        let mut a = Library::default();
+        let mut old = entry("old", "10.1/x", "K", 1.0, 2.0);
+        old.trashed = Some(2.0);
+        a.entries.push(old);
+        let mut b = Library::default();
+        b.entries.push(entry("new", "10.1/X", "K", 3.0, 3.0));
+        let merged = merge(&a, &b);
+        assert_eq!(
+            merged.entries.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),
+            ["new"]
+        );
     }
 
     #[test]

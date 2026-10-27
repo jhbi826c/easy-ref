@@ -147,9 +147,14 @@ pub fn EntryTable() -> impl IntoView {
                         when=move || state.search.with(|s| s.is_empty())
                         fallback=move || view! { <div class="empty-title">{move || state.t().no_match}</div> }
                     >
-                        <div class="empty-title">{move || state.t().empty_title}</div>
-                        <div>{move || state.t().empty_hint}</div>
-                        <code>"10.1109/CVPR.2016.90    arXiv:1706.03762"</code>
+                        <Show
+                            when=move || !state.in_trash()
+                            fallback=move || view! { <div class="empty-title">{move || state.t().trash_empty}</div> }
+                        >
+                            <div class="empty-title">{move || state.t().empty_title}</div>
+                            <div>{move || state.t().empty_hint}</div>
+                            <code>"10.1109/CVPR.2016.90    arXiv:1706.03762"</code>
+                        </Show>
                     </Show>
                 </div>
             </Show>

@@ -46,6 +46,15 @@ impl Lang {
 
 pub struct Strings {
     pub library: &'static str,
+    pub trash: &'static str,
+    pub trash_empty: &'static str,
+    pub restore: &'static str,
+    pub delete_forever: &'static str,
+    pub empty_trash: &'static str,
+    pub confirm_empty_trash: fn(usize) -> String,
+    pub moved_to_trash: fn(usize) -> String,
+    pub restored: fn(usize) -> String,
+    pub restored_from_trash: fn(&str) -> String,
     pub collections: &'static str,
     pub new_collection: &'static str,
     pub new_subcollection: &'static str,
@@ -124,7 +133,6 @@ pub struct Strings {
     pub bibtex_preview: &'static str,
     pub save: &'static str,
     pub saved: &'static str,
-    pub confirm_delete_entry: &'static str,
 
     pub export_title: &'static str,
     pub problems_title: &'static str,
@@ -167,6 +175,15 @@ pub struct Strings {
 
 pub const ZH: Strings = Strings {
     library: "全部文献",
+    trash: "回收站",
+    trash_empty: "回收站是空的",
+    restore: "恢复",
+    delete_forever: "彻底删除",
+    empty_trash: "清空回收站",
+    confirm_empty_trash: |n| format!("彻底删除回收站中的 {n} 条？此操作无法撤销。"),
+    moved_to_trash: |n| format!("{n} 条已移到回收站"),
+    restored: |n| format!("已恢复 {n} 条"),
+    restored_from_trash: |key| format!("{key} 已从回收站恢复"),
     collections: "目录",
     new_collection: "新建目录",
     new_subcollection: "新建子目录",
@@ -208,7 +225,7 @@ pub const ZH: Strings = Strings {
     add_to_collection: "加入目录…",
     remove_from_collection: "移出目录",
     delete: "删除",
-    confirm_delete_entries: |n| format!("从文献库彻底删除 {n} 条？所有目录中都会移除。"),
+    confirm_delete_entries: |n| format!("彻底删除 {n} 条？此操作无法撤销。"),
     new_entry: "手动新建",
     import_bib: "导入 .bib",
     imported: |added, skipped| {
@@ -270,7 +287,6 @@ pub const ZH: Strings = Strings {
     bibtex_preview: "BibTeX 预览",
     save: "保存",
     saved: "已保存",
-    confirm_delete_entry: "从文献库彻底删除这个条目？",
 
     export_title: "导出 BibTeX",
     problems_title: "以下条目可能让 BibTeX 产生警告，建议先补全：",
@@ -330,6 +346,15 @@ pub const ZH: Strings = Strings {
 
 pub const EN: Strings = Strings {
     library: "Library",
+    trash: "Trash",
+    trash_empty: "Trash is empty",
+    restore: "Restore",
+    delete_forever: "Delete permanently",
+    empty_trash: "Empty trash",
+    confirm_empty_trash: |n| format!("Permanently delete the {n} entries in the trash? This cannot be undone."),
+    moved_to_trash: |n| format!("Moved {n} to the trash"),
+    restored: |n| format!("Restored {n}"),
+    restored_from_trash: |key| format!("{key} was restored from the trash"),
     collections: "Collections",
     new_collection: "New collection",
     new_subcollection: "New subcollection",
@@ -375,7 +400,7 @@ pub const EN: Strings = Strings {
     add_to_collection: "Add to collection…",
     remove_from_collection: "Remove from collection",
     delete: "Delete",
-    confirm_delete_entries: |n| format!("Permanently delete {n} entries from the library and all collections?"),
+    confirm_delete_entries: |n| format!("Permanently delete {n} entries? This cannot be undone."),
     new_entry: "New entry",
     import_bib: "Import .bib",
     imported: |added, skipped| {
@@ -438,7 +463,6 @@ pub const EN: Strings = Strings {
     bibtex_preview: "BibTeX preview",
     save: "Save",
     saved: "Saved",
-    confirm_delete_entry: "Permanently delete this entry from the library?",
 
     export_title: "Export BibTeX",
     problems_title: "These entries may cause BibTeX warnings; consider completing them first:",

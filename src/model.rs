@@ -152,6 +152,9 @@ pub struct Entry {
     pub primary_class: String,
     pub added: f64,
     pub modified: f64,
+    /// When the entry was moved to the trash.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trashed: Option<f64>,
 }
 
 impl Entry {
@@ -205,6 +208,7 @@ pub struct Library {
 pub enum View {
     Library,
     Collection(String),
+    Trash,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -300,6 +304,29 @@ impl Library {
         }
     }
 
+    pub fn trash_entries(&mut self, ids: &[String], now: f64) {
+        for e in self
+            .entries
+            .iter_mut()
+            .filter(|e| ids.contains(&e.id) && e.trashed.is_none())
+        {
+            e.trashed = Some(now);
+            e.modified = now;
+        }
+    }
+
+    pub fn restore_entries(&mut self, ids: &[String], now: f64) {
+        for e in self
+            .entries
+            .iter_mut()
+            .filter(|e| ids.contains(&e.id) && e.trashed.is_some())
+        {
+            e.trashed = None;
+            e.modified = now;
+        }
+    }
+
+    /// Permanently deletes entries.
     pub fn delete_entries(&mut self, ids: &[String], now: f64) {
         let ids: HashSet<&str> = ids.iter().map(String::as_str).collect();
         self.entries.retain(|e| !ids.contains(e.id.as_str()));
@@ -523,7 +550,8 @@ impl Library {
     /// Entries of a view; a collection includes the entries of its subcollections.
     pub fn entries_in(&self, view: &View) -> Vec<&Entry> {
         match view {
-            View::Library => self.entries.iter().collect(),
+            View::Library => self.entries.iter().filter(|e| e.trashed.is_none()).collect(),
+            View::Trash => self.entries.iter().filter(|e| e.trashed.is_some()).collect(),
             View::Collection(cid) => {
                 if self.collection(cid).is_none() {
                     return vec![];
@@ -537,6 +565,7 @@ impl Library {
                     .flat_map(|c| c.entries.iter())
                     .filter(|id| seen.insert(id.as_str()))
                     .filter_map(|id| self.entry(id))
+                    .filter(|e| e.trashed.is_none())
                     .collect()
             }
         }
@@ -637,6 +666,35 @@ mod tests {
             .into_iter()
             .map(|(c, depth)| format!("{}{}", "-".repeat(depth), c.id))
             .collect()
+    }
+
+    #[test]
+    fn trash_and_restore() {
+        let mut lib = Library::default();
+        lib.add_entry(entry("e", "", "T", "A", "k"), 0.0);
+        lib.create_collection("c".into(), "C", None, 0.0);
+        lib.add_to_collection("c", &["e".into()], 0.0);
+        let count = |lib: &Library, view: View| lib.entries_in(&view).len();
+
+        lib.trash_entries(&["e".into()], 1.0);
+        assert_eq!(
+            (
+                count(&lib, View::Library),
+                count(&lib, View::Collection("c".into())),
+                count(&lib, View::Trash)
+            ),
+            (0, 0, 1)
+        );
+        lib.restore_entries(&["e".into()], 2.0);
+        assert_eq!(
+            (
+                count(&lib, View::Library),
+                count(&lib, View::Collection("c".into())),
+                count(&lib, View::Trash)
+            ),
+            (1, 1, 0)
+        );
+        assert_eq!(lib.entry("e").unwrap().modified, 2.0);
     }
 
     #[test]

@@ -51,14 +51,15 @@ pub fn EntryEditor(id: String) -> impl IntoView {
         let key = bibtex::cite_key(&current());
         draft.update(|d| d.key = key);
     };
-    let delete = move |_| {
-        if window()
-            .confirm_with_message(state.t_untracked().confirm_delete_entry)
-            .unwrap_or(false)
-        {
-            state.lib.update(|l| l.delete_entries(&[id.get_value()], now()));
-            state.editing.set(None);
-        }
+    let delete = move |_| state.delete_entries(vec![id.get_value()]);
+    let trashed = move || {
+        state
+            .lib
+            .with(|l| l.entry(&id.get_value()).is_some_and(|e| e.trashed.is_some()))
+    };
+    let restore = move |_| {
+        state.lib.update(|l| l.restore_entries(&[id.get_value()], now()));
+        state.notify(Level::Ok, (state.t_untracked().restored)(1));
     };
 
     let text_field = move |label: Label, get: fn(&Entry) -> &String, set: fn(&mut Entry, String)| {
@@ -205,8 +206,11 @@ pub fn EntryEditor(id: String) -> impl IntoView {
             </div>
             <footer>
                 <button class="danger" on:click=delete>
-                    {move || t().delete}
+                    {move || if trashed() { t().delete_forever } else { t().delete }}
                 </button>
+                <Show when=trashed>
+                    <button on:click=restore>{move || t().restore}</button>
+                </Show>
                 <div class="spacer"></div>
                 <button class="primary" on:click=save>
                     {move || t().save}
