@@ -440,6 +440,17 @@ fn Sidebar() -> impl IntoView {
     Effect::new(move |_| collapsed.with(|c| storage::save(storage::COLLAPSED_KEY, c)));
 
     let total = move || state.lib.with(|l| l.entries_in(&View::Library).len());
+    let library_hover = RwSignal::new(false);
+    let restore_dropped = move |ev: DragEvent| {
+        ev.prevent_default();
+        library_hover.set(false);
+        let ids = state.dragging.get_untracked();
+        if !ids.is_empty() {
+            state.lib.update(|l| l.restore_entries(&ids, now()));
+            state.selected.set(HashSet::new());
+            state.notify(Level::Ok, (state.t_untracked().restored)(ids.len()));
+        }
+    };
     let create = move |name: Option<String>| {
         let parent = creating.get_untracked().flatten();
         creating.set(None);
@@ -465,7 +476,16 @@ fn Sidebar() -> impl IntoView {
             <div
                 class="nav-item"
                 class:active=move || state.view.get() == View::Library
+                class:drophover=move || library_hover.get()
                 on:click=move |_| state.view.set(View::Library)
+                on:dragover=move |ev: DragEvent| {
+                    if state.in_trash() && !state.dragging.with_untracked(Vec::is_empty) {
+                        ev.prevent_default();
+                        library_hover.set(true);
+                    }
+                }
+                on:dragleave=move |_| library_hover.set(false)
+                on:drop=restore_dropped
             >
                 <IconLibrary />
                 <span class="name">{move || state.t().library}</span>
@@ -595,9 +615,10 @@ fn CollectionItem(
             return;
         }
         let mut added = 0;
-        state
-            .lib
-            .update(|l| added = l.add_to_collection(&id.get_value(), &ids, now()));
+        state.lib.update(|l| {
+            l.restore_entries(&ids, now());
+            added = l.add_to_collection(&id.get_value(), &ids, now());
+        });
         state.notify(
             Level::Ok,
             (state.t_untracked().added_to_collection)(added, &name_for(state, &id.get_value())),
@@ -1142,42 +1163,43 @@ fn Toolbar() -> impl IntoView {
             <div class="spacer"></div>
             <Show when=move || { count() > 0 }>
                 <span class="selcount">{move || (state.t().n_selected)(count())}</span>
-                <Show
-                    when=move || !state.in_trash()
-                    fallback=move || view! { <button on:click=restore>{move || state.t().restore}</button> }
-                >
-                    <select on:change=add_to>
-                        <option value="">{move || state.t().add_to_collection}</option>
-                        {move || {
-                            state
-                                .lib
-                                .with(|l| {
-                                    l.tree()
-                                        .into_iter()
-                                        .map(|(c, _)| {
-                                            view! { <option value=c.id.clone()>{l.collection_path(&c.id)}</option> }
-                                        })
-                                        .collect_view()
-                                })
-                        }}
-                    </select>
-                    <Show when=in_collection>
-                        <button on:click=remove_from>{move || state.t().remove_from_collection}</button>
-                    </Show>
+            </Show>
+            <Show when=move || { count() > 0 && !state.in_trash() }>
+                <select on:change=add_to>
+                    <option value="">{move || state.t().add_to_collection}</option>
+                    {move || {
+                        state
+                            .lib
+                            .with(|l| {
+                                l.tree()
+                                    .into_iter()
+                                    .map(|(c, _)| {
+                                        view! { <option value=c.id.clone()>{l.collection_path(&c.id)}</option> }
+                                    })
+                                    .collect_view()
+                            })
+                    }}
+                </select>
+                <Show when=in_collection>
+                    <button on:click=remove_from>{move || state.t().remove_from_collection}</button>
                 </Show>
                 <button class="danger" on:click=delete>
-                    {move || if state.in_trash() { state.t().delete_forever } else { state.t().delete }}
+                    {move || state.t().delete}
                 </button>
             </Show>
             <Show
                 when=move || !state.in_trash()
                 fallback=move || {
                     view! {
-                        <Show when=move || { trash_count() > 0 }>
-                            <button class="danger" on:click=empty_trash>
-                                {move || state.t().empty_trash}
-                            </button>
-                        </Show>
+                        <button disabled=move || count() == 0 title=move || state.t().select_to_restore on:click=restore>
+                            {move || state.t().restore}
+                        </button>
+                        <button class="danger" disabled=move || count() == 0 on:click=delete>
+                            {move || state.t().delete_forever}
+                        </button>
+                        <button class="danger" disabled=move || trash_count() == 0 on:click=empty_trash>
+                            {move || state.t().empty_trash}
+                        </button>
                     }
                 }
             >
