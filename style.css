@@ -410,7 +410,6 @@ button.icon:hover {
 
 table.entries {
   width: 100%;
-  min-width: 860px;
   border-collapse: collapse;
   table-layout: fixed;
   font-size: 13px;
@@ -504,38 +503,34 @@ table.entries {
   --c: var(--tag-preprint);
 }
 
-.col-title {
-  width: auto;
-}
-
-.col-authors {
-  width: 17%;
-}
-
 .col-year {
-  width: 64px;
   font-variant-numeric: tabular-nums;
 }
 
-.col-venue {
-  width: 21%;
-}
-
-.col-type {
-  width: 96px;
-}
-
 .col-key {
-  width: 160px;
   font-family: var(--mono);
   font-size: 12px;
 }
 
 .col-added,
 .col-deleted {
-  width: 100px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.col-resizer:hover,
+.col-resizer.active {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 .empty {
@@ -935,7 +930,11 @@ button:disabled {
   }
 
   table.entries {
-    min-width: 0;
+    min-width: 0 !important;
+  }
+
+  .col-resizer {
+    display: none;
   }
 
   .entries .col-venue,

@@ -2,10 +2,33 @@ use crate::app::AppState;
 use crate::bibtex::plain_title;
 use crate::i18n::Strings;
 use crate::model::{Entry, EntryType};
-use leptos::ev::{DragEvent, MouseEvent};
+use crate::storage;
+use leptos::ev::{DragEvent, MouseEvent, PointerEvent};
 use leptos::prelude::*;
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use wasm_bindgen::JsCast;
+
+/// Default column widths in pixels; for the title it is the minimum width.
+const DEFAULT_WIDTHS: [(&str, f64); 8] = [
+    ("col-title", 240.0),
+    ("col-authors", 160.0),
+    ("col-year", 56.0),
+    ("col-venue", 180.0),
+    ("col-type", 84.0),
+    ("col-key", 140.0),
+    ("col-added", 96.0),
+    ("col-deleted", 96.0),
+];
+const CHECK_WIDTH: f64 = 40.0;
+const MIN_WIDTH: f64 = 48.0;
+
+fn default_width(class: &str) -> f64 {
+    DEFAULT_WIDTHS
+        .iter()
+        .find(|(c, _)| *c == class)
+        .map_or(120.0, |(_, w)| *w)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SortColumn {
@@ -100,6 +123,70 @@ pub fn EntryTable() -> impl IntoView {
         }
     };
 
+    let widths = RwSignal::new(storage::load::<HashMap<String, f64>>(storage::COLUMNS_KEY));
+    let width = move |class: &str| {
+        widths
+            .with(|w| w.get(class).copied())
+            .unwrap_or_else(|| default_width(class))
+    };
+    // Column being resized, pointer x and column width when the drag started.
+    let resizing = RwSignal::new(None::<(&'static str, f64, f64)>);
+    let visible_columns = move || {
+        COLUMNS
+            .into_iter()
+            .chain(state.in_trash().then_some(DELETED_COLUMN))
+            .collect::<Vec<_>>()
+    };
+    let table_width = move || CHECK_WIDTH + visible_columns().iter().map(|(_, _, class)| width(class)).sum::<f64>();
+
+    let resizer = move |class: &'static str| {
+        let on_down = move |ev: PointerEvent| {
+            ev.stop_propagation();
+            ev.prevent_default();
+            let Some(handle) = ev.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()) else {
+                return;
+            };
+            let _ = handle.set_pointer_capture(ev.pointer_id());
+            let current = handle
+                .parent_element()
+                .map_or_else(|| width(class), |th| th.get_bounding_client_rect().width());
+            resizing.set(Some((class, f64::from(ev.client_x()), current)));
+        };
+        let on_move = move |ev: PointerEvent| {
+            if let Some((c, x0, w0)) = resizing.get_untracked().filter(|(c, _, _)| *c == class) {
+                let w = (w0 + f64::from(ev.client_x()) - x0).max(MIN_WIDTH).round();
+                widths.update(|map| {
+                    map.insert(c.to_string(), w);
+                });
+            }
+        };
+        let on_up = move |_: PointerEvent| {
+            if resizing.get_untracked().is_some() {
+                resizing.set(None);
+                widths.with_untracked(|w| storage::save(storage::COLUMNS_KEY, w));
+            }
+        };
+        view! {
+            <span
+                class="col-resizer"
+                class:active=move || resizing.with(|r| r.is_some_and(|(c, _, _)| c == class))
+                title=move || state.t().resize_column
+                on:pointerdown=on_down
+                on:pointermove=on_move
+                on:pointerup=on_up
+                on:pointercancel=on_up
+                on:click=|ev: MouseEvent| ev.stop_propagation()
+                on:dblclick=move |ev: MouseEvent| {
+                    ev.stop_propagation();
+                    widths.update(|w| {
+                        w.remove(class);
+                    });
+                    widths.with_untracked(|w| storage::save(storage::COLUMNS_KEY, w));
+                }
+            ></span>
+        }
+    };
+
     let header = move |(column, label, class): (SortColumn, Label, &'static str)| {
         let indicator = move || match state.sort.get() {
             (c, true) if c == column => "▲",
@@ -116,24 +203,26 @@ pub fn EntryTable() -> impl IntoView {
                 }
             })
         };
+        let style = move || {
+            if class == "col-title" {
+                String::new()
+            } else {
+                format!("width: {}px", width(class))
+            }
+        };
         view! {
-            <th class=class on:click=on_click>
+            <th class=class style=style on:click=on_click>
                 {move || label(state.t())}
                 <span class="sort">{indicator}</span>
+                {resizer(class)}
             </th>
         }
     };
-    let headers = move || {
-        COLUMNS
-            .into_iter()
-            .chain(state.in_trash().then_some(DELETED_COLUMN))
-            .map(header)
-            .collect_view()
-    };
+    let headers = move || visible_columns().into_iter().map(header).collect_view();
 
     view! {
         <div class="table-wrap">
-            <table class="entries">
+            <table class="entries" style=move || format!("min-width: {}px", table_width())>
                 <thead>
                     <tr>
                         <th class="col-check">
