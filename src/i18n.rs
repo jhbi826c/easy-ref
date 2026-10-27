@@ -48,13 +48,14 @@ pub struct Strings {
     pub library: &'static str,
     pub collections: &'static str,
     pub new_collection: &'static str,
+    pub new_subcollection: &'static str,
     pub collection_name: &'static str,
     pub collections_hint: &'static str,
     pub rename_hint: &'static str,
     pub rename: &'static str,
     pub resize_sidebar: &'static str,
     pub delete_collection: &'static str,
-    pub confirm_delete_collection: fn(&str) -> String,
+    pub confirm_delete_collection: fn(&str, usize) -> String,
 
     pub add_placeholder: &'static str,
     pub add: &'static str,
@@ -168,13 +169,20 @@ pub const ZH: Strings = Strings {
     library: "全部文献",
     collections: "目录",
     new_collection: "新建目录",
+    new_subcollection: "新建子目录",
     collection_name: "目录名称",
     collections_hint: "点 + 新建目录，把条目拖到目录上即可加入。",
-    rename_hint: "双击重命名，拖动调整顺序",
+    rename_hint: "双击重命名；拖到其他目录的上下边缘调整顺序，拖到中间放进去",
     rename: "重命名",
     resize_sidebar: "拖动调整宽度，双击还原",
     delete_collection: "删除目录",
-    confirm_delete_collection: |name| format!("删除目录「{name}」？条目本身不会被删除。"),
+    confirm_delete_collection: |name, subfolders| {
+        if subfolders == 0 {
+            format!("删除目录「{name}」？条目本身不会被删除。")
+        } else {
+            format!("删除目录「{name}」及其中的 {subfolders} 个子目录？条目本身不会被删除。")
+        }
+    },
 
     add_placeholder: "粘贴 DOI / 链接 / arXiv 编号 / BibTeX，可一次多个，回车添加",
     add: "添加",
@@ -324,13 +332,22 @@ pub const EN: Strings = Strings {
     library: "Library",
     collections: "Collections",
     new_collection: "New collection",
+    new_subcollection: "New subcollection",
     collection_name: "Collection name",
     collections_hint: "Click + to create a collection, then drag entries onto it.",
-    rename_hint: "Double-click to rename, drag to reorder",
+    rename_hint: "Double-click to rename; drop on another collection's edge to reorder, on its middle to nest",
     rename: "Rename",
     resize_sidebar: "Drag to resize, double-click to reset",
     delete_collection: "Delete collection",
-    confirm_delete_collection: |name| format!("Delete collection \"{name}\"? Its entries stay in the library."),
+    confirm_delete_collection: |name, subfolders| {
+        if subfolders == 0 {
+            format!("Delete collection \"{name}\"? Its entries stay in the library.")
+        } else {
+            format!(
+                "Delete collection \"{name}\" and its {subfolders} subcollection(s)? The entries stay in the library."
+            )
+        }
+    },
 
     add_placeholder: "Paste DOIs, links, arXiv IDs or BibTeX (several at once), press Enter",
     add: "Add",

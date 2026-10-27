@@ -266,7 +266,7 @@ async fn push(config: &SyncConfig, lib: &Library, sha: Option<&str>) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Person;
+    use crate::model::{Person, Place};
 
     fn entry(id: &str, doi: &str, key: &str, added: f64, modified: f64) -> Entry {
         Entry {
@@ -298,12 +298,18 @@ mod tests {
     fn collection_order_propagates() {
         let mut a = Library::default();
         for id in ["c1", "c2", "c3"] {
-            a.create_collection(id.into(), id, 1.0);
+            a.create_collection(id.into(), id, None, 1.0);
         }
         let b = a.clone();
-        a.move_collection("c3", "c1", false, 2.0);
-        let names: Vec<_> = merge(&b, &a).collections.into_iter().map(|c| c.id).collect();
-        assert_eq!(names, ["c3", "c1", "c2"]);
+        a.move_collection("c3", "c1", Place::Before, 2.0);
+        a.move_collection("c2", "c1", Place::Inside, 3.0);
+        let merged = merge(&b, &a);
+        let tree: Vec<_> = merged
+            .tree()
+            .into_iter()
+            .map(|(c, depth)| (c.id.as_str(), depth))
+            .collect();
+        assert_eq!(tree, [("c3", 0), ("c1", 0), ("c2", 1)]);
     }
 
     #[test]

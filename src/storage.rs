@@ -5,6 +5,7 @@ pub const SYNC_KEY: &str = "easy-ref.sync";
 pub const LANG_KEY: &str = "easy-ref.lang";
 pub const THEME_KEY: &str = "easy-ref.theme";
 pub const SIDEBAR_KEY: &str = "easy-ref.sidebar-width";
+pub const COLLAPSED_KEY: &str = "easy-ref.collapsed";
 
 fn local_storage() -> Option<web_sys::Storage> {
     web_sys::window()?.local_storage().ok().flatten()

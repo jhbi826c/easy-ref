@@ -176,10 +176,20 @@ impl Entry {
 pub struct Collection {
     pub id: String,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
     pub entries: Vec<String>,
-    /// Position in the sidebar.
+    /// Position among its siblings.
     pub order: f64,
     pub modified: f64,
+}
+
+/// Where a dragged collection lands relative to the target.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Place {
+    Before,
+    After,
+    Inside,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -305,35 +315,143 @@ impl Library {
         }
     }
 
-    pub fn create_collection(&mut self, id: String, name: &str, now: f64) {
-        let order = self.collections.iter().map(|c| c.order + 1.0).fold(0.0, f64::max);
+    pub fn create_collection(&mut self, id: String, name: &str, parent: Option<&str>, now: f64) {
+        let parent = parent.filter(|p| self.collection(p).is_some()).map(str::to_string);
+        let order = self
+            .collections
+            .iter()
+            .filter(|c| self.parent_of(c) == parent.as_deref())
+            .map(|c| c.order + 1.0)
+            .fold(0.0, f64::max);
         self.collections.push(Collection {
             id,
             name: name.trim().to_string(),
+            parent,
             entries: vec![],
             order,
             modified: now,
         });
     }
 
-    /// Moves collection `id` before or after `target`.
-    pub fn move_collection(&mut self, id: &str, target: &str, after: bool, now: f64) {
-        if id == target {
+    /// The parent of `c`, ignoring references to missing collections.
+    pub fn parent_of<'a>(&self, c: &'a Collection) -> Option<&'a str> {
+        c.parent
+            .as_deref()
+            .filter(|p| *p != c.id && self.collection(p).is_some())
+    }
+
+    fn children(&self, parent: Option<&str>) -> Vec<&Collection> {
+        let mut children: Vec<&Collection> = self
+            .collections
+            .iter()
+            .filter(|c| self.parent_of(c) == parent)
+            .collect();
+        children.sort_by(|a, b| a.order.total_cmp(&b.order).then_with(|| a.id.cmp(&b.id)));
+        children
+    }
+
+    /// All collections in display order with their depth. Collections caught in a
+    /// parent cycle (possible after concurrent moves) are shown at the top level.
+    pub fn tree(&self) -> Vec<(&Collection, usize)> {
+        fn walk<'a>(
+            lib: &'a Library,
+            c: &'a Collection,
+            depth: usize,
+            seen: &mut HashSet<&'a str>,
+            out: &mut Vec<(&'a Collection, usize)>,
+        ) {
+            if !seen.insert(c.id.as_str()) {
+                return;
+            }
+            out.push((c, depth));
+            for child in lib.children(Some(&c.id)) {
+                walk(lib, child, depth + 1, seen, out);
+            }
+        }
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        for root in self.children(None) {
+            walk(self, root, 0, &mut seen, &mut out);
+        }
+        let mut stranded: Vec<&Collection> = self
+            .collections
+            .iter()
+            .filter(|c| !seen.contains(c.id.as_str()))
+            .collect();
+        stranded.sort_by(|a, b| a.id.cmp(&b.id));
+        for c in stranded {
+            walk(self, c, 0, &mut seen, &mut out);
+        }
+        out
+    }
+
+    /// Ids of all collections below `id`.
+    pub fn descendants(&self, id: &str) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        let mut stack = vec![id.to_string()];
+        while let Some(current) = stack.pop() {
+            for child in self.children(Some(&current)) {
+                if child.id != id && !out.contains(&child.id) {
+                    out.push(child.id.clone());
+                    stack.push(child.id.clone());
+                }
+            }
+        }
+        out
+    }
+
+    /// `Topic / Subtopic`.
+    pub fn collection_path(&self, id: &str) -> String {
+        let mut names = Vec::new();
+        let mut current = self.collection(id);
+        while let Some(c) = current {
+            if names.len() > self.collections.len() {
+                break;
+            }
+            names.push(c.name.as_str());
+            current = self.parent_of(c).and_then(|p| self.collection(p));
+        }
+        names.reverse();
+        names.join(" / ")
+    }
+
+    /// Moves `id` before, after or into `target`. Moving into its own subtree is ignored.
+    pub fn move_collection(&mut self, id: &str, target: &str, place: Place, now: f64) {
+        if id == target || self.descendants(id).iter().any(|d| d == target) {
             return;
         }
-        let Some(from) = self.collections.iter().position(|c| c.id == id) else {
+        let Some(target_col) = self.collection(target) else {
             return;
         };
-        let moved = self.collections.remove(from);
-        let Some(to) = self.collections.iter().position(|c| c.id == target) else {
-            self.collections.insert(from, moved);
-            return;
+        let parent = match place {
+            Place::Inside => Some(target.to_string()),
+            _ => self.parent_of(target_col).map(str::to_string),
         };
-        self.collections.insert(if after { to + 1 } else { to }, moved);
-        for (i, c) in self.collections.iter_mut().enumerate() {
-            if c.order != i as f64 {
-                c.order = i as f64;
-                c.modified = now;
+        let mut siblings: Vec<String> = self
+            .children(parent.as_deref())
+            .into_iter()
+            .map(|c| c.id.clone())
+            .filter(|c| c != id)
+            .collect();
+        let at = match place {
+            Place::Inside => siblings.len(),
+            Place::Before => siblings.iter().position(|c| c == target).unwrap_or(0),
+            Place::After => siblings
+                .iter()
+                .position(|c| c == target)
+                .map_or(siblings.len(), |p| p + 1),
+        };
+        siblings.insert(at, id.to_string());
+        for (i, sid) in siblings.iter().enumerate() {
+            if let Some(c) = self.collection_mut(sid) {
+                let moved = c.id == id && c.parent != parent;
+                if c.order != i as f64 || moved {
+                    c.order = i as f64;
+                    c.modified = now;
+                }
+                if c.id == id {
+                    c.parent = parent.clone();
+                }
             }
         }
     }
@@ -345,9 +463,14 @@ impl Library {
         }
     }
 
+    /// Deletes a collection and everything below it; the entries stay in the library.
     pub fn delete_collection(&mut self, id: &str, now: f64) {
-        self.collections.retain(|c| c.id != id);
-        self.deleted.insert(id.to_string(), now);
+        let mut ids = self.descendants(id);
+        ids.push(id.to_string());
+        self.collections.retain(|c| !ids.contains(&c.id));
+        for id in ids {
+            self.deleted.insert(id, now);
+        }
     }
 
     /// Returns how many entries were newly added.
@@ -368,20 +491,54 @@ impl Library {
         added
     }
 
+    /// Adds or removes one entry in one collection only.
+    pub fn set_membership(&mut self, collection_id: &str, entry_id: &str, member: bool, now: f64) {
+        let Some(c) = self.collection_mut(collection_id) else {
+            return;
+        };
+        let present = c.entries.iter().any(|e| e == entry_id);
+        if member && !present {
+            c.entries.push(entry_id.to_string());
+        } else if !member && present {
+            c.entries.retain(|e| e != entry_id);
+        } else {
+            return;
+        }
+        c.modified = now;
+    }
+
+    /// Removes entries from a collection and all collections below it.
     pub fn remove_from_collection(&mut self, collection_id: &str, ids: &[String], now: f64) {
-        if let Some(c) = self.collection_mut(collection_id) {
+        let mut scope = self.descendants(collection_id);
+        scope.push(collection_id.to_string());
+        for c in self.collections.iter_mut().filter(|c| scope.contains(&c.id)) {
+            let before = c.entries.len();
             c.entries.retain(|id| !ids.contains(id));
-            c.modified = now;
+            if c.entries.len() != before {
+                c.modified = now;
+            }
         }
     }
 
+    /// Entries of a view; a collection includes the entries of its subcollections.
     pub fn entries_in(&self, view: &View) -> Vec<&Entry> {
         match view {
             View::Library => self.entries.iter().collect(),
-            View::Collection(cid) => match self.collection(cid) {
-                Some(c) => c.entries.iter().filter_map(|id| self.entry(id)).collect(),
-                None => vec![],
-            },
+            View::Collection(cid) => {
+                if self.collection(cid).is_none() {
+                    return vec![];
+                }
+                let mut scope = vec![cid.clone()];
+                scope.extend(self.descendants(cid));
+                let mut seen = HashSet::new();
+                scope
+                    .iter()
+                    .filter_map(|c| self.collection(c))
+                    .flat_map(|c| c.entries.iter())
+                    .filter(|id| seen.insert(id.as_str()))
+                    .filter_map(|id| self.entry(id))
+                    .collect()
+            }
         }
     }
 }
@@ -468,27 +625,93 @@ mod tests {
     fn deleting_entry_removes_membership() {
         let mut lib = Library::default();
         lib.add_entry(entry("e", "", "T", "A", "k"), 0.0);
-        lib.create_collection("c".into(), "C", 0.0);
+        lib.create_collection("c".into(), "C", None, 0.0);
         lib.add_to_collection("c", &["e".into()], 1.0);
         lib.delete_entries(&["e".into()], 2.0);
         assert!(lib.collection("c").unwrap().entries.is_empty());
         assert_eq!(lib.deleted.get("e"), Some(&2.0));
     }
 
+    fn tree_of(lib: &Library) -> Vec<String> {
+        lib.tree()
+            .into_iter()
+            .map(|(c, depth)| format!("{}{}", "-".repeat(depth), c.id))
+            .collect()
+    }
+
     #[test]
     fn moves_collections() {
         let mut lib = Library::default();
         for id in ["a", "b", "c", "d"] {
-            lib.create_collection(id.into(), id, 0.0);
+            lib.create_collection(id.into(), id, None, 0.0);
         }
-        let ids = |lib: &Library| lib.collections.iter().map(|c| c.id.clone()).collect::<Vec<_>>();
-        lib.move_collection("d", "a", false, 1.0);
-        assert_eq!(ids(&lib), ["d", "a", "b", "c"]);
-        lib.move_collection("d", "b", true, 2.0);
-        assert_eq!(ids(&lib), ["a", "b", "d", "c"]);
-        let orders: Vec<f64> = lib.collections.iter().map(|c| c.order).collect();
-        assert_eq!(orders, [0.0, 1.0, 2.0, 3.0]);
-        lib.create_collection("e".into(), "e", 3.0);
-        assert_eq!(lib.collections.last().unwrap().order, 4.0);
+        lib.move_collection("d", "a", Place::Before, 1.0);
+        assert_eq!(tree_of(&lib), ["d", "a", "b", "c"]);
+        lib.move_collection("d", "b", Place::After, 2.0);
+        assert_eq!(tree_of(&lib), ["a", "b", "d", "c"]);
+        lib.create_collection("e".into(), "e", None, 3.0);
+        assert_eq!(tree_of(&lib), ["a", "b", "d", "c", "e"]);
+    }
+
+    #[test]
+    fn nests_collections() {
+        let mut lib = Library::default();
+        lib.create_collection("topic".into(), "Topic", None, 0.0);
+        lib.create_collection("sub".into(), "Sub", Some("topic"), 0.0);
+        lib.create_collection("deep".into(), "Deep", Some("sub"), 0.0);
+        lib.create_collection("other".into(), "Other", None, 0.0);
+        assert_eq!(tree_of(&lib), ["topic", "-sub", "--deep", "other"]);
+        assert_eq!(lib.collection_path("deep"), "Topic / Sub / Deep");
+
+        lib.move_collection("other", "sub", Place::Inside, 1.0);
+        assert_eq!(tree_of(&lib), ["topic", "-sub", "--deep", "--other"]);
+        lib.move_collection("topic", "deep", Place::Inside, 2.0);
+        assert_eq!(
+            tree_of(&lib),
+            ["topic", "-sub", "--deep", "--other"],
+            "cannot move into own subtree"
+        );
+        lib.move_collection("deep", "topic", Place::Before, 3.0);
+        assert_eq!(tree_of(&lib), ["deep", "topic", "-sub", "--other"]);
+    }
+
+    #[test]
+    fn parent_shows_and_exports_subcollection_entries() {
+        let mut lib = Library::default();
+        for id in ["e1", "e2", "e3"] {
+            lib.add_entry(entry(id, "", id, "A", id), 0.0);
+        }
+        lib.create_collection("topic".into(), "Topic", None, 0.0);
+        lib.create_collection("sub".into(), "Sub", Some("topic"), 0.0);
+        lib.add_to_collection("topic", &["e1".into()], 0.0);
+        lib.add_to_collection("sub", &["e1".into(), "e2".into()], 0.0);
+        let ids = |lib: &Library, cid: &str| -> Vec<String> {
+            lib.entries_in(&View::Collection(cid.into()))
+                .iter()
+                .map(|e| e.id.clone())
+                .collect()
+        };
+        assert_eq!(ids(&lib, "topic"), ["e1", "e2"]);
+        assert_eq!(ids(&lib, "sub"), ["e1", "e2"]);
+
+        lib.remove_from_collection("topic", &["e2".into()], 1.0);
+        assert_eq!(ids(&lib, "sub"), ["e1"]);
+
+        lib.delete_collection("topic", 2.0);
+        assert!(lib.collections.is_empty());
+        assert!(lib.deleted.contains_key("sub"));
+        assert_eq!(lib.entries.len(), 3);
+    }
+
+    #[test]
+    fn tree_survives_cycles_and_missing_parents() {
+        let mut lib = Library::default();
+        lib.create_collection("a".into(), "A", None, 0.0);
+        lib.create_collection("b".into(), "B", Some("a"), 0.0);
+        lib.collection_mut("a").unwrap().parent = Some("b".into());
+        lib.create_collection("c".into(), "C", None, 0.0);
+        lib.collection_mut("c").unwrap().parent = Some("gone".into());
+        assert_eq!(tree_of(&lib), ["c", "a", "-b"]);
+        assert_eq!(lib.descendants("a"), ["b"]);
     }
 }

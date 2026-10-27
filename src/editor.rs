@@ -75,25 +75,21 @@ pub fn EntryEditor(id: String) -> impl IntoView {
 
     let memberships = move || {
         state.lib.with(|l| {
-            l.collections
-                .iter()
-                .map(|c| {
+            l.tree()
+                .into_iter()
+                .map(|(c, _)| {
                     let cid = c.id.clone();
                     let member = c.entries.contains(&id.get_value());
                     let on_change = move |ev: Event| {
-                        let ids = [id.get_value()];
-                        if event_target_checked(&ev) {
-                            state.lib.update(|l| {
-                                l.add_to_collection(&cid, &ids, now());
-                            });
-                        } else {
-                            state.lib.update(|l| l.remove_from_collection(&cid, &ids, now()));
-                        }
+                        let member = event_target_checked(&ev);
+                        state
+                            .lib
+                            .update(|l| l.set_membership(&cid, &id.get_value(), member, now()));
                     };
                     view! {
                         <label class="check">
                             <input type="checkbox" prop:checked=member on:change=on_change />
-                            {c.name.clone()}
+                            {l.collection_path(&c.id)}
                         </label>
                     }
                 })

@@ -5,7 +5,7 @@ use crate::editor::EntryEditor;
 use crate::export::{Export, ExportDialog};
 use crate::i18n::{Lang, Strings};
 use crate::metadata;
-use crate::model::{AddOutcome, Entry, EntryType, Library, View};
+use crate::model::{AddOutcome, Entry, EntryType, Library, Place, View};
 use crate::settings::{self, SettingsDialog, Theme};
 use crate::storage::{self, new_id, now};
 use crate::sync::{self, SyncConfig, SyncError};
@@ -149,9 +149,7 @@ impl AppState {
     pub fn view_name(&self) -> String {
         match self.view.get() {
             View::Library => self.t().library.into(),
-            View::Collection(id) => self
-                .lib
-                .with(|l| l.collection(&id).map(|c| c.name.clone()).unwrap_or_default()),
+            View::Collection(id) => self.lib.with(|l| l.collection_path(&id)),
         }
     }
 
@@ -170,7 +168,7 @@ impl AppState {
             .with_untracked(|l| l.entries_in(&view).iter().map(|e| e.id.clone()).collect());
         let name = match view {
             View::Library => "library".into(),
-            View::Collection(_) => self.view_name(),
+            View::Collection(id) => name_for(*self, &id),
         };
         Export { ids, name }
     }
@@ -375,34 +373,57 @@ fn SidebarFooter() -> impl IntoView {
     }
 }
 
+/// A sidebar row: collection id, name, depth, entry count and whether it has children.
+type TreeRow = (String, String, usize, usize, bool);
+
+/// Visible rows of the collection tree, skipping children of collapsed collections.
+fn visible_rows(lib: &Library, collapsed: &HashSet<String>) -> Vec<TreeRow> {
+    let tree = lib.tree();
+    let mut rows = Vec::new();
+    let mut hidden_below: Option<usize> = None;
+    for (i, (c, depth)) in tree.iter().enumerate() {
+        if hidden_below.is_some_and(|d| *depth > d) {
+            continue;
+        }
+        hidden_below = None;
+        let has_children = tree.get(i + 1).is_some_and(|(_, next)| *next > *depth);
+        if has_children && collapsed.contains(&c.id) {
+            hidden_below = Some(*depth);
+        }
+        let count = lib.entries_in(&View::Collection(c.id.clone())).len();
+        rows.push((c.id.clone(), c.name.clone(), *depth, count, has_children));
+    }
+    rows
+}
+
+fn indent(depth: usize) -> String {
+    format!("padding-left: {}px", 10 + depth * 14)
+}
+
 #[component]
 fn Sidebar() -> impl IntoView {
     let state = expect_context::<AppState>();
-    let creating = RwSignal::new(false);
+    // None: not creating; Some(None): a top-level collection; Some(Some(id)): a child of `id`.
+    let creating = RwSignal::new(None::<Option<String>>);
     let renaming = RwSignal::new(None::<String>);
+    let collapsed = RwSignal::new(storage::load::<HashSet<String>>(storage::COLLAPSED_KEY));
+    Effect::new(move |_| collapsed.with(|c| storage::save(storage::COLLAPSED_KEY, c)));
 
     let total = move || state.lib.with(|l| l.entries.len());
-    let collections = move || {
-        state.lib.with(|l| {
-            l.collections
-                .iter()
-                .map(|c| {
-                    (
-                        c.id.clone(),
-                        c.name.clone(),
-                        c.entries.iter().filter(|id| l.entry(id).is_some()).count(),
-                    )
-                })
-                .collect::<Vec<_>>()
-        })
-    };
     let create = move |name: Option<String>| {
-        creating.set(false);
+        let parent = creating.get_untracked().flatten();
+        creating.set(None);
         if let Some(name) = name {
             let id = new_id();
-            state.lib.update(|l| l.create_collection(id.clone(), &name, now()));
+            state
+                .lib
+                .update(|l| l.create_collection(id.clone(), &name, parent.as_deref(), now()));
             state.view.set(View::Collection(id));
         }
+    };
+    let rows = move || {
+        let collapsed = collapsed.get();
+        state.lib.with(|l| visible_rows(l, &collapsed))
     };
 
     view! {
@@ -422,20 +443,42 @@ fn Sidebar() -> impl IntoView {
             </div>
             <div class="section-title">
                 <span>{move || state.t().collections}</span>
-                <button class="icon" title=move || state.t().new_collection on:click=move |_| creating.set(true)>
+                <button class="icon" title=move || state.t().new_collection on:click=move |_| creating.set(Some(None))>
                     "+"
                 </button>
             </div>
             {move || {
-                collections()
+                rows()
                     .into_iter()
-                    .map(|(id, name, count)| view! { <CollectionItem id=id name=name count=count renaming=renaming /> })
+                    .map(|(id, name, depth, count, has_children)| {
+                        let adding_child = creating.with(|c| c.as_ref().and_then(|p| p.as_deref()) == Some(id.as_str()));
+                        view! {
+                            <CollectionItem
+                                id=id
+                                name=name
+                                depth=depth
+                                count=count
+                                has_children=has_children
+                                collapsed=collapsed
+                                renaming=renaming
+                                creating=creating
+                            />
+                            {adding_child
+                                .then(|| {
+                                    view! {
+                                        <div style=indent(depth + 1)>
+                                            <NameInput initial=String::new() on_done=create />
+                                        </div>
+                                    }
+                                })}
+                        }
+                    })
                     .collect_view()
             }}
-            <Show when=move || creating.get()>
+            <Show when=move || creating.with(|c| c == &Some(None))>
                 <NameInput initial=String::new() on_done=create />
             </Show>
-            <Show when=move || state.lib.with(|l| l.collections.is_empty()) && !creating.get()>
+            <Show when=move || state.lib.with(|l| l.collections.is_empty()) && creating.with(Option::is_none)>
                 <p class="hint">{move || state.t().collections_hint}</p>
             </Show>
             <SidebarFooter />
@@ -444,7 +487,16 @@ fn Sidebar() -> impl IntoView {
 }
 
 #[component]
-fn CollectionItem(id: String, name: String, count: usize, renaming: RwSignal<Option<String>>) -> impl IntoView {
+fn CollectionItem(
+    id: String,
+    name: String,
+    depth: usize,
+    count: usize,
+    has_children: bool,
+    collapsed: RwSignal<HashSet<String>>,
+    renaming: RwSignal<Option<String>>,
+    creating: RwSignal<Option<Option<String>>>,
+) -> impl IntoView {
     let state = expect_context::<AppState>();
     let hover = RwSignal::new(false);
     let id = StoredValue::new(id);
@@ -454,9 +506,9 @@ fn CollectionItem(id: String, name: String, count: usize, renaming: RwSignal<Opt
             .with(|v| matches!(v, View::Collection(c) if *c == id.get_value()))
     };
     let is_renaming = move || renaming.with(|r| r.as_deref() == Some(id.get_value().as_str()));
+    let is_open = move || !collapsed.with(|c| c.contains(&id.get_value()));
     let item = NodeRef::<leptos::html::Div>::new();
-    // Some(true) drops after this item, Some(false) before it.
-    let drop_after = RwSignal::new(None::<bool>);
+    let drop_place = RwSignal::new(None::<Place>);
     let is_dragged = move || {
         state
             .dragging_collection
@@ -474,11 +526,18 @@ fn CollectionItem(id: String, name: String, count: usize, renaming: RwSignal<Opt
         ev.prevent_default();
         match state.dragging_collection.get_untracked() {
             Some(dragged) if dragged != id.get_value() => {
-                let after = item.get_untracked().is_some_and(|el| {
+                let place = item.get_untracked().map(|el| {
                     let rect = el.get_bounding_client_rect();
-                    f64::from(ev.client_y()) > rect.top() + rect.height() / 2.0
+                    let at = (f64::from(ev.client_y()) - rect.top()) / rect.height();
+                    if at < 0.25 {
+                        Place::Before
+                    } else if at > 0.75 {
+                        Place::After
+                    } else {
+                        Place::Inside
+                    }
                 });
-                drop_after.set(Some(after));
+                drop_place.set(place);
             }
             Some(_) => {}
             None => hover.set(true),
@@ -488,12 +547,17 @@ fn CollectionItem(id: String, name: String, count: usize, renaming: RwSignal<Opt
         ev.prevent_default();
         hover.set(false);
         if let Some(dragged) = state.dragging_collection.get_untracked() {
-            let after = drop_after.get_untracked().unwrap_or(false);
-            drop_after.set(None);
+            let place = drop_place.get_untracked().unwrap_or(Place::Inside);
+            drop_place.set(None);
             state.dragging_collection.set(None);
+            if place == Place::Inside {
+                collapsed.update(|c| {
+                    c.remove(&id.get_value());
+                });
+            }
             state
                 .lib
-                .update(|l| l.move_collection(&dragged, &id.get_value(), after, now()));
+                .update(|l| l.move_collection(&dragged, &id.get_value(), place, now()));
             return;
         }
         let ids = state.dragging.get_untracked();
@@ -517,14 +581,40 @@ fn CollectionItem(id: String, name: String, count: usize, renaming: RwSignal<Opt
     };
     let remove = move |ev: leptos::ev::MouseEvent| {
         ev.stop_propagation();
-        let msg = (state.t_untracked().confirm_delete_collection)(&name_for(state, &id.get_value()));
+        let subfolders = state.lib.with_untracked(|l| l.descendants(&id.get_value()).len());
+        let msg = (state.t_untracked().confirm_delete_collection)(&name_for(state, &id.get_value()), subfolders);
         if window().confirm_with_message(&msg).unwrap_or(false) {
+            let doomed = state.lib.with_untracked(|l| {
+                let mut ids = l.descendants(&id.get_value());
+                ids.push(id.get_value());
+                ids
+            });
             state.lib.update(|l| l.delete_collection(&id.get_value(), now()));
-            if is_active() {
+            if state
+                .view
+                .with_untracked(|v| matches!(v, View::Collection(c) if doomed.contains(c)))
+            {
                 state.view.set(View::Library);
             }
         }
     };
+    let add_child = move |ev: leptos::ev::MouseEvent| {
+        ev.stop_propagation();
+        collapsed.update(|c| {
+            c.remove(&id.get_value());
+        });
+        creating.set(Some(Some(id.get_value())));
+    };
+    let toggle = move |ev: leptos::ev::MouseEvent| {
+        ev.stop_propagation();
+        collapsed.update(|c| {
+            let id = id.get_value();
+            if !c.remove(&id) {
+                c.insert(id);
+            }
+        });
+    };
+
     view! {
         <Show
             when=is_renaming
@@ -533,32 +623,47 @@ fn CollectionItem(id: String, name: String, count: usize, renaming: RwSignal<Opt
                 view! {
                     <div
                         class="nav-item collection"
+                        style=indent(depth)
                         node_ref=item
                         draggable="true"
                         class:active=is_active
                         class:drophover=move || hover.get()
-                        class:dropbefore=move || drop_after.get() == Some(false)
-                        class:dropafter=move || drop_after.get() == Some(true)
+                        class:dropbefore=move || drop_place.get() == Some(Place::Before)
+                        class:dropafter=move || drop_place.get() == Some(Place::After)
+                        class:dropinside=move || drop_place.get() == Some(Place::Inside)
                         class:dragged=is_dragged
                         on:click=move |_| state.view.set(View::Collection(id.get_value()))
                         on:dblclick=move |_| renaming.set(Some(id.get_value()))
                         on:dragstart=on_dragstart
                         on:dragend=move |_| {
                             state.dragging_collection.set(None);
-                            drop_after.set(None);
+                            drop_place.set(None);
                         }
                         on:dragover=on_dragover
                         on:dragleave=move |_| {
                             hover.set(false);
-                            drop_after.set(None);
+                            drop_place.set(None);
                         }
                         on:drop=on_drop
                     >
+                        {if has_children {
+                            view! {
+                                <button class="icon twisty" class:open=is_open on:click=toggle>
+                                    "▸"
+                                </button>
+                            }
+                                .into_any()
+                        } else {
+                            view! { <span class="twisty"></span> }.into_any()
+                        }}
                         <IconFolder />
                         <span class="name" title=move || state.t().rename_hint>
                             {name}
                         </span>
                         <span class="actions">
+                            <button class="icon" title=move || state.t().new_subcollection on:click=add_child>
+                                "+"
+                            </button>
                             <button
                                 class="icon"
                                 title=move || state.t().rename
@@ -578,7 +683,9 @@ fn CollectionItem(id: String, name: String, count: usize, renaming: RwSignal<Opt
                 }
             }
         >
-            <NameInput initial=name_for(state, &id.get_value()) on_done=rename />
+            <div style=indent(depth)>
+                <NameInput initial=name_for(state, &id.get_value()) on_done=rename />
+            </div>
         </Show>
     }
 }
@@ -939,9 +1046,11 @@ fn Toolbar() -> impl IntoView {
                         state
                             .lib
                             .with(|l| {
-                                l.collections
-                                    .iter()
-                                    .map(|c| view! { <option value=c.id.clone()>{c.name.clone()}</option> })
+                                l.tree()
+                                    .into_iter()
+                                    .map(|(c, _)| {
+                                        view! { <option value=c.id.clone()>{l.collection_path(&c.id)}</option> }
+                                    })
                                     .collect_view()
                             })
                     }}
