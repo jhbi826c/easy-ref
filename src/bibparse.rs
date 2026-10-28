@@ -628,8 +628,14 @@ pub fn to_entry(raw: &RawEntry) -> Entry {
         "book" => EntryType::Book,
         "phdthesis" => EntryType::PhdThesis,
         "techreport" | "report" => EntryType::TechReport,
+        "online" | "electronic" | "www" | "webpage" => EntryType::Online,
         _ => EntryType::Misc,
     };
+    let urldate = ["urldate", "lastchecked", "lastaccessed"]
+        .iter()
+        .find_map(|f| field(f))
+        .map(plain)
+        .unwrap_or_default();
 
     let authors: Vec<Person> = field("author")
         .or_else(|| field("editor"))
@@ -685,9 +691,19 @@ pub fn to_entry(raw: &RawEntry) -> Entry {
         eprint.clear();
         primary_class.clear();
     }
+    // Zotero's BibTeX export writes web pages as @misc with url and urldate.
+    if kind == EntryType::Misc && !preprint && doi.is_empty() && !url.is_empty() && !urldate.is_empty() {
+        kind = EntryType::Online;
+    }
 
     let series = text("series");
-    let publisher = first_text(&["publisher", "school", "institution", "organization"]);
+    let mut publisher = first_text(&["publisher", "school", "institution", "organization"]);
+    if kind == EntryType::Online {
+        if venue.is_empty() {
+            venue = publisher.clone();
+        }
+        publisher.clear();
+    }
     let mut address = text("address");
     if address.is_empty() && !matches!(kind, EntryType::Article | EntryType::Misc) {
         address = publisher_address(&publisher).to_string();
@@ -721,6 +737,7 @@ pub fn to_entry(raw: &RawEntry) -> Entry {
         url,
         eprint,
         primary_class,
+        urldate,
         ..Default::default()
     }
 }
@@ -901,6 +918,35 @@ series = {CHI '19}
             (EntryType::Misc, "Vaswani2023arXiv", "cs.CL")
         );
         assert_eq!(e.doi, "10.48550/arXiv.1706.03762");
+    }
+
+    #[test]
+    fn online_entries() {
+        let e = entries(
+            r#"@online{zotero, title={Zotero}, author={{Corporation for Digital Scholarship}}, organization={Zotero},
+                 url={https://www.zotero.org/}, urldate={2019-10-12}, year={2019}}
+               @misc{zotero_bibtex, title={Public Service Research Foundation}, author={American Rights at Work},
+                 url={http://www.americanrightsatwork.org/blogcategory-275/}, urldate={2012-07-27}, year={2012},
+                 howpublished={http://www.americanrightsatwork.org/blogcategory-275/}}
+               @electronic{ieee, title={Leptos}, howpublished={GitHub}, url={https://github.com/leptos-rs/leptos},
+                 note={Accessed: Oct. 28, 2026}, year={2024}}
+               @misc{plain, title={Some report}, author={X, Y}, howpublished={Self-published}, year={2020}}"#,
+        );
+        let summary: Vec<_> = e
+            .iter()
+            .map(|e| (e.kind, e.venue.as_str(), e.urldate.as_str()))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                (EntryType::Online, "Zotero", "2019-10-12"),
+                (EntryType::Online, "", "2012-07-27"),
+                (EntryType::Online, "GitHub", ""),
+                (EntryType::Misc, "Self-published", ""),
+            ]
+        );
+        assert_eq!(e[0].authors[0].family, "Corporation for Digital Scholarship");
+        assert!(e[0].publisher.is_empty());
     }
 
     #[test]
