@@ -333,7 +333,9 @@ fn Row(entry: Entry, rows: Memo<Vec<Entry>>, anchor: RwSignal<Option<String>>) -
 
     view! {
         <tr
+            data-id=entry.id.clone()
             class:selected=is_selected
+            class:recent=move || state.recent.with(|r| r.contains(&id.get_value()))
             draggable="true"
             on:click=on_click
             on:dblclick=on_dblclick

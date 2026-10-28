@@ -516,6 +516,21 @@ table.entries {
   background: var(--bg-hover);
 }
 
+.entries tbody tr.recent td {
+  animation: recent-flash 1.6s ease-out;
+}
+
+.entries tbody tr.recent td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+@keyframes recent-flash {
+  0%,
+  40% {
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+}
+
 .entries tbody tr.selected td {
   background: var(--bg-selected);
 }

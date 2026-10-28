@@ -49,6 +49,10 @@ pub struct AppState {
     /// DOIs waiting for lookup with their target collection.
     pub queue: RwSignal<VecDeque<(String, Option<String>)>>,
     pub busy: RwSignal<bool>,
+    /// Entries added or found as duplicates by the current batch of lookups.
+    batch: RwSignal<Vec<String>>,
+    /// Just-added entries, marked in the table until the selection changes.
+    pub recent: RwSignal<HashSet<String>>,
     pub lang: RwSignal<Lang>,
     pub theme: RwSignal<Theme>,
     pub settings_open: RwSignal<bool>,
@@ -158,6 +162,29 @@ impl AppState {
         }
     }
 
+    /// Marks just-added entries without touching the selection and scrolls the latest into view.
+    pub fn reveal(&self, ids: &[String]) {
+        let Some(latest) = ids.last().cloned() else { return };
+        self.recent.set(ids.iter().cloned().collect());
+        request_animation_frame(move || {
+            if let Ok(Some(row)) = document().query_selector(&format!("tr[data-id=\"{latest}\"]")) {
+                let options = web_sys::ScrollIntoViewOptions::new();
+                options.set_block(web_sys::ScrollLogicalPosition::Nearest);
+                row.scroll_into_view_with_scroll_into_view_options(&options);
+            }
+        });
+    }
+
+    /// Adds an entry to the current batch and reveals the whole batch.
+    fn mark_in_batch(&self, id: &str) {
+        self.batch.update(|b| {
+            if !b.iter().any(|x| x == id) {
+                b.push(id.to_string());
+            }
+        });
+        self.batch.with_untracked(|b| self.reveal(b));
+    }
+
     pub fn in_trash(&self) -> bool {
         self.view.with(|v| *v == View::Trash)
     }
@@ -222,6 +249,8 @@ pub fn App() -> impl IntoView {
         dragging_collection: RwSignal::new(None),
         queue: RwSignal::new(VecDeque::new()),
         busy: RwSignal::new(false),
+        batch: RwSignal::new(vec![]),
+        recent: RwSignal::new(HashSet::new()),
         lang: RwSignal::new(initial_lang()),
         theme: RwSignal::new(storage::load(storage::THEME_KEY)),
         settings_open: RwSignal::new(false),
@@ -265,6 +294,10 @@ pub fn App() -> impl IntoView {
     Effect::new(move |_| {
         state.view.track();
         state.selected.set(HashSet::new());
+    });
+    Effect::new(move |_| {
+        state.selected.track();
+        state.recent.set(HashSet::new());
     });
 
     let editing = Memo::new(move |_| state.editing.get());
@@ -943,6 +976,7 @@ pub fn import_bibtex(state: AppState, text: &str) -> bool {
     let target = state.current_collection();
     let (mut added, mut skipped) = (0, 0);
     let mut replaced = Vec::new();
+    let mut new_ids = Vec::new();
     state.lib.update(|l| {
         for r in &raw {
             let mut entry = bibparse::to_entry(r);
@@ -951,14 +985,17 @@ pub fn import_bibtex(state: AppState, text: &str) -> bool {
             let id = match l.add_entry(entry, now()) {
                 AddOutcome::Added(id) => {
                     added += 1;
+                    new_ids.push(id.clone());
                     id
                 }
                 AddOutcome::Duplicate(id) => {
                     skipped += 1;
+                    new_ids.push(id.clone());
                     id
                 }
                 AddOutcome::Replaced { id, old_key } => {
                     replaced.push((old_key, l.entry(&id).map(|e| e.key.clone()).unwrap_or_default()));
+                    new_ids.push(id.clone());
                     id
                 }
             };
@@ -967,6 +1004,7 @@ pub fn import_bibtex(state: AppState, text: &str) -> bool {
             }
         }
     });
+    state.reveal(&new_ids);
     if added > 0 || skipped > 0 {
         state.notify(Level::Ok, (t.imported)(added, skipped));
     }
@@ -978,6 +1016,9 @@ pub fn import_bibtex(state: AppState, text: &str) -> bool {
 
 fn add_identifiers(state: AppState, input: &str) {
     let target = state.current_collection();
+    if !state.busy.get_untracked() {
+        state.batch.set(vec![]);
+    }
     for token in doi::parse_input(input) {
         let doi = match token {
             Token::Doi(doi) => doi,
@@ -988,6 +1029,7 @@ fn add_identifiers(state: AppState, input: &str) {
         };
         if let Some(existing) = state.lib.with_untracked(|l| l.find_by_doi(&doi).map(|e| e.id.clone())) {
             report_duplicate(state, &existing, target.as_deref());
+            state.mark_in_batch(&existing);
             continue;
         }
         let queued = state
@@ -1026,8 +1068,12 @@ async fn run_queue(state: AppState) {
                     });
                 }
                 added += 1;
+                state.mark_in_batch(&id);
             }
-            Some(AddOutcome::Duplicate(id)) => report_duplicate(state, &id, target.as_deref()),
+            Some(AddOutcome::Duplicate(id)) => {
+                report_duplicate(state, &id, target.as_deref());
+                state.mark_in_batch(&id);
+            }
             Some(AddOutcome::Replaced { id, old_key }) => {
                 let new_key = state
                     .lib
@@ -1038,6 +1084,7 @@ async fn run_queue(state: AppState) {
                     });
                 }
                 state.notify(Level::Ok, (state.t_untracked().replaced)(&old_key, &new_key));
+                state.mark_in_batch(&id);
             }
             None => {}
         }
@@ -1149,6 +1196,7 @@ fn Toolbar() -> impl IntoView {
                 l.add_to_collection(&cid, std::slice::from_ref(&id), now());
             }
         });
+        state.reveal(std::slice::from_ref(&id));
         state.editing.set(Some(id));
     };
     let export = move |_| state.exporting.set(Some(state.export_targets()));
