@@ -6,6 +6,7 @@ use crate::export::{Export, ExportDialog};
 use crate::i18n::{Lang, Strings};
 use crate::metadata;
 use crate::model::{AddOutcome, Entry, EntryType, Library, Place, View};
+use crate::online;
 use crate::settings::{self, SettingsDialog, Theme};
 use crate::storage::{self, new_id, now};
 use crate::sync::{self, SyncConfig, SyncError};
@@ -1023,7 +1024,13 @@ fn add_identifiers(state: AppState, input: &str) {
         let doi = match token {
             Token::Doi(doi) => doi,
             Token::Unrecognized(raw) => {
-                state.notify(Level::Warn, (state.t_untracked().unrecognized)(&raw));
+                match online::host(&raw) {
+                    Some(host) if online::is_paper_page(&host) => {
+                        state.notify(Level::Warn, (state.t_untracked().paper_page)(&host));
+                    }
+                    Some(_) => queue_link(state, raw, target.clone()),
+                    None => state.notify(Level::Warn, (state.t_untracked().unrecognized)(&raw)),
+                }
                 continue;
             }
         };
@@ -1045,17 +1052,55 @@ fn add_identifiers(state: AppState, input: &str) {
     }
 }
 
-/// Looks up queued DOIs one at a time.
+/// Queues a web link unless an online entry with the same link exists.
+fn queue_link(state: AppState, url: String, target: Option<String>) {
+    if let Some(existing) = state.lib.with_untracked(|l| l.find_by_url(&url).map(|e| e.id.clone())) {
+        report_duplicate(state, &existing, target.as_deref());
+        state.mark_in_batch(&existing);
+        return;
+    }
+    let queued = state.queue.with_untracked(|q| {
+        q.iter()
+            .any(|(u, _)| online::normalize_url(u) == online::normalize_url(&url))
+    });
+    if !queued {
+        state.queue.update(|q| q.push_back((url, target)));
+    }
+}
+
+/// An online entry for a web link, with repository details for GitHub links.
+async fn link_entry(state: AppState, url: &str) -> Entry {
+    let year = js_sys::Date::new_0().get_full_year() as i32;
+    let entry = online::link_entry(url, &crate::editor::today(), year);
+    let Some((owner, repo)) = online::github_repo(url) else {
+        return entry;
+    };
+    let token = state.sync_config.with_untracked(|c| c.token.trim().to_string());
+    match online::lookup_github(&owner, &repo, &token, entry.clone()).await {
+        Ok(filled) => filled,
+        Err(e) => {
+            state.notify(Level::Warn, (state.t_untracked().repo_failed)(url, &e));
+            entry
+        }
+    }
+}
+
+/// Looks up queued DOIs and web links one at a time.
 async fn run_queue(state: AppState) {
     let mut added = 0;
-    while let Some((doi, target)) = state.queue.try_update(|q| q.pop_front()).flatten() {
-        let mut entry = match metadata::lookup(&doi).await {
-            Ok(entry) => entry,
-            Err(e) => {
-                state.notify(Level::Error, (state.t_untracked().lookup_failed)(&doi, &e));
-                continue;
+    while let Some((item, target)) = state.queue.try_update(|q| q.pop_front()).flatten() {
+        let mut entry = if online::host(&item).is_some() {
+            link_entry(state, &item).await
+        } else {
+            match metadata::lookup(&item).await {
+                Ok(entry) => entry,
+                Err(e) => {
+                    state.notify(Level::Error, (state.t_untracked().lookup_failed)(&item, &e));
+                    continue;
+                }
             }
         };
+        let needs_title = entry.title.trim().is_empty();
         entry.id = new_id();
         entry.key = bibtex::cite_key(&entry);
         let mut outcome = None;
@@ -1069,6 +1114,9 @@ async fn run_queue(state: AppState) {
                 }
                 added += 1;
                 state.mark_in_batch(&id);
+                if needs_title {
+                    state.editing.set(Some(id));
+                }
             }
             Some(AddOutcome::Duplicate(id)) => {
                 report_duplicate(state, &id, target.as_deref());

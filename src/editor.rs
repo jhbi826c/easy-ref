@@ -54,7 +54,8 @@ pub fn EntryEditor(id: String) -> impl IntoView {
     let save = move |_| {
         let mut e = current();
         e.key = bibtex::sanitize_key(&e.key);
-        if e.key.is_empty() {
+        let placeholder = e.key.starts_with("Anon") && !(e.authors.is_empty() && e.title.trim().is_empty());
+        if e.key.is_empty() || placeholder {
             e.key = bibtex::cite_key(&e);
         }
         state.lib.update(|l| l.update_entry(e, now()));

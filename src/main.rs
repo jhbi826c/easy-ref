@@ -7,6 +7,7 @@ mod export;
 mod i18n;
 mod metadata;
 mod model;
+mod online;
 mod settings;
 mod storage;
 mod sync;

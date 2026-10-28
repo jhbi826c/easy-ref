@@ -74,6 +74,8 @@ pub struct Strings {
     pub looking_up: fn(usize) -> String,
     pub unrecognized: fn(&str) -> String,
     pub lookup_failed: fn(&str, &LookupError) -> String,
+    pub paper_page: fn(&str) -> String,
+    pub repo_failed: fn(&str, &LookupError) -> String,
     pub added_n: fn(usize) -> String,
     pub dup_in_library: fn(&str) -> String,
     pub dup_added_to_collection: fn(&str) -> String,
@@ -229,6 +231,16 @@ pub const ZH: Strings = Strings {
         LookupError::Failed(msg) => format!("{doi}：请求失败（可能被限流，请稍后重试）：{msg}"),
         LookupError::Http(code) => format!("{doi}：服务器返回 HTTP {code}"),
         LookupError::Parse(msg) => format!("{doi}：无法解析返回数据：{msg}"),
+    },
+    paper_page: |host| format!("{host} 是论文页面，请复制页面上的 DOI 或 BibTeX 粘贴进来"),
+    repo_failed: |url, e| {
+        let why = match e {
+            LookupError::NotFound => "仓库不存在或为私有".to_string(),
+            LookupError::Http(403 | 429) => "超出 GitHub 访问频率限制，可在设置中填写 token".to_string(),
+            LookupError::Http(code) => format!("HTTP {code}"),
+            LookupError::Failed(msg) | LookupError::Parse(msg) => msg.clone(),
+        };
+        format!("无法获取仓库信息（{why}），已按普通网页添加：{url}")
     },
     added_n: |n| format!("已添加 {n} 条"),
     dup_in_library: |key| format!("{key} 已在文献库中，未重复添加"),
@@ -428,6 +440,16 @@ pub const EN: Strings = Strings {
         LookupError::Failed(msg) => format!("{doi}: request failed (possibly rate limited, try again later): {msg}"),
         LookupError::Http(code) => format!("{doi}: server returned HTTP {code}"),
         LookupError::Parse(msg) => format!("{doi}: could not parse response: {msg}"),
+    },
+    paper_page: |host| format!("{host} is a paper page, paste the DOI or BibTeX from the page instead"),
+    repo_failed: |url, e| {
+        let why = match e {
+            LookupError::NotFound => "repository not found or private".to_string(),
+            LookupError::Http(403 | 429) => "GitHub rate limit reached, add a token in Settings".to_string(),
+            LookupError::Http(code) => format!("HTTP {code}"),
+            LookupError::Failed(msg) | LookupError::Parse(msg) => msg.clone(),
+        };
+        format!("Could not fetch repository details ({why}), added as a plain web page: {url}")
     },
     added_n: |n| format!("Added {n} {}", if n == 1 { "entry" } else { "entries" }),
     dup_in_library: |key| format!("{key} is already in the library, skipped"),

@@ -265,8 +265,23 @@ impl Library {
             if !doi.is_empty() && normalize_doi(&e.doi) == doi {
                 return true;
             }
+            if candidate.kind == EntryType::Online
+                && e.kind == EntryType::Online
+                && !candidate.url.trim().is_empty()
+                && crate::online::normalize_url(&e.url) == crate::online::normalize_url(&candidate.url)
+            {
+                return true;
+            }
             !title.is_empty() && normalize_title(&e.title) == title && e.first_author_family().to_lowercase() == family
         })
+    }
+
+    /// An online entry outside the trash with this link.
+    pub fn find_by_url(&self, url: &str) -> Option<&Entry> {
+        let url = crate::online::normalize_url(url);
+        self.entries
+            .iter()
+            .find(|e| e.trashed.is_none() && e.kind == EntryType::Online && crate::online::normalize_url(&e.url) == url)
     }
 
     /// An entry outside the trash with this DOI.
@@ -788,6 +803,33 @@ mod tests {
 
         lib.restore_entries(&["old".into()], 3.0);
         assert_eq!(lib.entry("old").unwrap().key, "He2016CVPRPaper");
+    }
+
+    #[test]
+    fn online_entries_match_by_link() {
+        let mut lib = Library::default();
+        let link = |id: &str, url: &str| Entry {
+            id: id.into(),
+            kind: EntryType::Online,
+            url: url.into(),
+            key: "Anon2026GitHub".into(),
+            ..Default::default()
+        };
+        lib.add_entry(link("a", "https://github.com/leptos-rs/leptos"), 0.0);
+        assert!(matches!(
+            lib.add_entry(link("b", "http://www.github.com/leptos-rs/leptos/"), 1.0),
+            AddOutcome::Duplicate(_)
+        ));
+        assert!(matches!(
+            lib.add_entry(link("c", "https://github.com/rust-lang/rust"), 2.0),
+            AddOutcome::Added(_)
+        ));
+        assert!(
+            lib.find_by_url("https://github.com/Leptos-rs/leptos")
+                .is_some_and(|e| e.id == "a")
+        );
+        lib.trash_entries(&["a".into()], 3.0);
+        assert!(lib.find_by_url("https://github.com/leptos-rs/leptos").is_none());
     }
 
     #[test]
