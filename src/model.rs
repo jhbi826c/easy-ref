@@ -10,18 +10,21 @@ pub enum EntryType {
     Book,
     PhdThesis,
     TechReport,
+    /// Web page, software or other online resource.
+    Online,
     #[default]
     Misc,
 }
 
 impl EntryType {
-    pub const ALL: [EntryType; 7] = [
+    pub const ALL: [EntryType; 8] = [
         EntryType::Article,
         EntryType::InProceedings,
         EntryType::InCollection,
         EntryType::Book,
         EntryType::PhdThesis,
         EntryType::TechReport,
+        EntryType::Online,
         EntryType::Misc,
     ];
 
@@ -33,6 +36,7 @@ impl EntryType {
             EntryType::Book => "book",
             EntryType::PhdThesis => "phdthesis",
             EntryType::TechReport => "techreport",
+            EntryType::Online => "online",
             EntryType::Misc => "misc",
         }
     }
@@ -150,6 +154,8 @@ pub struct Entry {
     /// arXiv identifier, e.g. `1706.03762`.
     pub eprint: String,
     pub primary_class: String,
+    /// Access date of the URL, `YYYY-MM-DD`.
+    pub urldate: String,
     pub added: f64,
     pub modified: f64,
     /// When the entry was moved to the trash.

@@ -372,12 +372,14 @@ fn type_class(kind: EntryType) -> &'static str {
         EntryType::Article => "journal",
         EntryType::InProceedings => "conf",
         EntryType::Misc => "preprint",
+        EntryType::Online => "online",
         _ => "other",
     }
 }
 
 fn type_label(t: &'static Strings, e: &Entry) -> &'static str {
     match e.kind {
+        EntryType::Online => t.online,
         EntryType::Misc if !e.eprint.is_empty() => t.preprint,
         EntryType::Misc => t.other,
         kind => (t.entry_type)(kind),

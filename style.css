@@ -19,6 +19,7 @@
   --tag-conf: #059669;
   --tag-preprint: #c2410c;
   --tag-other: #6b7280;
+  --tag-online: #7c3aed;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -40,6 +41,7 @@
     --tag-conf: #34d399;
     --tag-preprint: #fb923c;
     --tag-other: #9aa1ad;
+    --tag-online: #a78bfa;
   }
 }
 
@@ -61,6 +63,7 @@
   --tag-conf: #34d399;
   --tag-preprint: #fb923c;
   --tag-other: #9aa1ad;
+  --tag-online: #a78bfa;
 }
 
 * {
@@ -581,6 +584,10 @@ table.entries {
   --c: var(--tag-preprint);
 }
 
+.tag.online {
+  --c: var(--tag-online);
+}
+
 .col-year {
   font-variant-numeric: tabular-nums;
 }
@@ -725,6 +732,12 @@ table.entries {
 
 .grid2 {
   grid-template-columns: 1fr 1fr;
+}
+
+.grid-url {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 150px;
 }
 
 .grid3 {

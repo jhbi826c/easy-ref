@@ -15,6 +15,12 @@ fn parse_authors(text: &str) -> Vec<Person> {
     text.lines().filter_map(Person::from_line).collect()
 }
 
+/// Local date as `YYYY-MM-DD`.
+pub fn today() -> String {
+    let d = js_sys::Date::new_0();
+    format!("{:04}-{:02}-{:02}", d.get_full_year(), d.get_month() + 1, d.get_date())
+}
+
 fn doi_url(doi: &str) -> Option<String> {
     crate::doi::parse_token(doi).map(|d| format!("https://doi.org/{d}"))
 }
@@ -233,7 +239,12 @@ pub fn EntryEditor(id: String) -> impl IntoView {
                     <select on:change=move |ev| {
                         let v = event_target_value(&ev);
                         if let Some(kind) = EntryType::from_bibtex_name(&v) {
-                            draft.update(|d| d.kind = kind);
+                            draft.update(|d| {
+                                d.kind = kind;
+                                if kind == EntryType::Online && d.urldate.trim().is_empty() {
+                                    d.urldate = today();
+                                }
+                            });
                         }
                     }>
                         {EntryType::ALL
@@ -283,7 +294,17 @@ pub fn EntryEditor(id: String) -> impl IntoView {
                         </select>
                     </label>
                 </div>
-                {text_field(|t| t.field_venue, |e| &e.venue, |e, v| e.venue = v)}
+                <label class="field">
+                    <span>
+                        {move || {
+                            if draft.with(|d| d.kind == EntryType::Online) { t().field_website } else { t().field_venue }
+                        }}
+                    </span>
+                    <input
+                        prop:value=move || draft.with(|d| d.venue.clone())
+                        on:input=move |ev| draft.update(|d| d.venue = event_target_value(&ev))
+                    />
+                </label>
                 <div class="grid2">
                     {text_field(|t| t.field_venue_short, |e| &e.venue_short, |e, v| e.venue_short = v)}
                     {text_field(|t| t.field_series, |e| &e.series, |e, v| e.series = v)}
@@ -331,7 +352,17 @@ pub fn EntryEditor(id: String) -> impl IntoView {
                         <span class="muted small">{move || t().fetching_doi}</span>
                     </Show>
                 </label>
-                {link_field("URL", |e| &e.url, |e, v| e.url = v, web_url)}
+                <div class="grid-url">
+                    {link_field("URL", |e| &e.url, |e, v| e.url = v, web_url)}
+                    <label class="field">
+                        <span>{move || t().field_urldate}</span>
+                        <input
+                            type="date"
+                            prop:value=move || draft.with(|d| d.urldate.clone())
+                            on:input=move |ev| draft.update(|d| d.urldate = event_target_value(&ev))
+                        />
+                    </label>
+                </div>
                 <div class="grid2">
                     {text_field(|t| t.field_arxiv_id, |e| &e.eprint, |e, v| e.eprint = v)}
                     {text_field(|t| t.field_arxiv_class, |e| &e.primary_class, |e, v| e.primary_class = v)}

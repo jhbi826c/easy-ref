@@ -106,6 +106,7 @@ pub fn entry_to_bibtex(e: &Entry) -> String {
         }
         EntryType::TechReport => put("number", braced(&e.number)),
         EntryType::PhdThesis => {}
+        EntryType::Online => put("organization", braced(&e.venue)),
         EntryType::Misc => {
             let how = if e.eprint.is_empty() {
                 braced(&e.venue)
@@ -124,7 +125,7 @@ pub fn entry_to_bibtex(e: &Entry) -> String {
     let publisher_field = match e.kind {
         EntryType::PhdThesis => "school",
         EntryType::TechReport => "institution",
-        EntryType::Misc => "",
+        EntryType::Misc | EntryType::Online => "",
         _ => "publisher",
     };
     if !publisher_field.is_empty() {
@@ -140,8 +141,14 @@ pub fn entry_to_bibtex(e: &Entry) -> String {
         put("primaryclass", raw(&e.primary_class));
     }
     put("doi", raw(&e.doi));
-    if e.doi.is_empty() || !e.eprint.is_empty() {
+    if e.doi.is_empty() || !e.eprint.is_empty() || e.kind == EntryType::Online {
         put("url", raw(&e.url));
+    }
+    if !e.urldate.trim().is_empty() {
+        put("urldate", raw(&e.urldate));
+        if e.kind == EntryType::Online {
+            put("note", format!("{{Accessed: {}}}", e.urldate.trim()));
+        }
     }
     if e.authors.is_empty() {
         put("key", braced(&e.key));
@@ -457,9 +464,16 @@ pub fn command_char(name: &str) -> Option<char> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Problem {
-    NoKey { title: String },
-    Missing { key: String, fields: Vec<&'static str> },
+    NoKey {
+        title: String,
+    },
+    Missing {
+        key: String,
+        fields: Vec<&'static str>,
+    },
     DuplicateKey(String),
+    /// `@online` is unknown to plain, abbrv, unsrt and plainnat.
+    OnlineEntries(usize),
 }
 
 /// Problems that would make BibTeX warn: missing required fields and duplicate keys.
@@ -484,8 +498,11 @@ pub fn check(entries: &[&Entry]) -> Vec<Problem> {
             _ => None,
         };
         let mut missing = Vec::new();
-        if e.authors.is_empty() {
+        if e.authors.is_empty() && e.kind != EntryType::Online {
             missing.push("author");
+        }
+        if e.kind == EntryType::Online && e.url.trim().is_empty() {
+            missing.push("url");
         }
         if e.kind != EntryType::Misc && e.year.is_none() {
             missing.push("year");
@@ -512,6 +529,10 @@ pub fn check(entries: &[&Entry]) -> Vec<Problem> {
     let mut dups: Vec<_> = seen.into_iter().filter(|(_, n)| *n > 1).map(|(k, _)| k).collect();
     dups.sort();
     problems.extend(dups.into_iter().map(|k| Problem::DuplicateKey(k.to_string())));
+    let online = entries.iter().filter(|e| e.kind == EntryType::Online).count();
+    if online > 0 {
+        problems.push(Problem::OnlineEntries(online));
+    }
     problems
 }
 
@@ -619,6 +640,44 @@ mod tests {
 }
 ";
         assert_eq!(entry_to_bibtex(&e), expected);
+    }
+
+    #[test]
+    fn online_entry() {
+        let e = Entry {
+            key: "Leptos2024GitHub".into(),
+            kind: EntryType::Online,
+            title: "Leptos: Build fast web applications with Rust".into(),
+            year: Some(2024),
+            venue: "GitHub".into(),
+            url: "https://github.com/leptos-rs/leptos".into(),
+            urldate: "2026-10-28".into(),
+            ..Default::default()
+        };
+        let expected = "\
+@online{Leptos2024GitHub,
+  title        = {Leptos: Build fast web applications with Rust},
+  organization = {GitHub},
+  year         = {2024},
+  url          = {https://github.com/leptos-rs/leptos},
+  urldate      = {2026-10-28},
+  note         = {Accessed: 2026-10-28},
+  key          = {Leptos2024GitHub}
+}
+";
+        assert_eq!(entry_to_bibtex(&e), expected);
+        assert_eq!(check(&[&e]), [Problem::OnlineEntries(1)]);
+        let no_url = Entry {
+            url: String::new(),
+            ..e
+        };
+        assert_eq!(
+            check(&[&no_url])[0],
+            Problem::Missing {
+                key: "Leptos2024GitHub".into(),
+                fields: vec!["url"]
+            }
+        );
     }
 
     #[test]
