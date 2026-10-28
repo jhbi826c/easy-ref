@@ -1,20 +1,26 @@
-//! Syncs the library with a secret GitHub gist.
+//! Syncs the library with a private GitHub repository, split into small files.
 
 use crate::model::{Collection, Entry, Library, disambiguate_key, normalize_doi};
-use gloo_net::http::{Request, RequestBuilder};
+use gloo_net::http::{Request, RequestBuilder, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 const API: &str = "https://api.github.com";
-pub const FILE: &str = "easy-ref-library.json";
+pub const DEFAULT_REPO: &str = "easy-ref-library";
+/// Number of files the entries are spread over.
+const SHARDS: u32 = 16;
+const COLLECTIONS: &str = "collections.json";
+const DELETED: &str = "deleted.json";
+const README: &str = "# easy-ref library\n\nSynced by easy-ref. Entries are in `entries/`, collections in \
+                      `collections.json` and deleted ids in `deleted.json`.\n";
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SyncConfig {
     pub token: String,
-    /// Found or created on the first sync.
-    pub gist_id: String,
+    /// `name` or `owner/name`; empty means [`DEFAULT_REPO`] in the token's account.
+    pub repo: String,
     pub auto: bool,
 }
 
@@ -29,9 +35,106 @@ pub enum SyncError {
     NotConfigured,
     Unauthorized,
     Forbidden(String),
+    /// Repository that is missing or not accessible with the token.
+    NoRepo(String),
+    /// Other devices kept pushing at the same time.
+    Conflict,
     Network(String),
     Http(u16, String),
     InvalidFile(String),
+}
+
+/// File that holds an entry, e.g. `entries/7.json`.
+fn shard(id: &str) -> String {
+    let hash = id
+        .bytes()
+        .fold(0x811c_9dc5_u32, |h, b| (h ^ u32::from(b)).wrapping_mul(0x0100_0193));
+    format!("entries/{:x}.json", hash % SHARDS)
+}
+
+fn is_data_file(path: &str) -> bool {
+    path == COLLECTIONS || path == DELETED || (path.starts_with("entries/") && path.ends_with(".json"))
+}
+
+/// A JSON array with one item per line.
+fn json_lines<T: Serialize>(items: &[&T]) -> String {
+    let lines: Vec<String> = items.iter().filter_map(|i| serde_json::to_string(i).ok()).collect();
+    if lines.is_empty() {
+        "[]\n".into()
+    } else {
+        format!("[\n{}\n]\n", lines.join(",\n"))
+    }
+}
+
+/// The library as repository files, path → content. Empty entry files are left out.
+pub fn to_files(lib: &Library) -> BTreeMap<String, String> {
+    let mut shards: BTreeMap<String, Vec<&Entry>> = BTreeMap::new();
+    for e in &lib.entries {
+        shards.entry(shard(&e.id)).or_default().push(e);
+    }
+    let mut files: BTreeMap<String, String> = shards
+        .into_iter()
+        .map(|(path, mut entries)| {
+            entries.sort_by(|a, b| a.id.cmp(&b.id));
+            (path, json_lines(&entries))
+        })
+        .collect();
+    let mut collections: Vec<&Collection> = lib.collections.iter().collect();
+    collections.sort_by(|a, b| a.id.cmp(&b.id));
+    files.insert(COLLECTIONS.into(), json_lines(&collections));
+    let deleted = serde_json::to_string_pretty(&lib.deleted).unwrap_or_default();
+    files.insert(DELETED.into(), deleted + "\n");
+    files
+}
+
+/// Adds one repository file to a library.
+fn read_file(lib: &mut Library, path: &str, content: &str) -> Result<(), SyncError> {
+    let invalid = |e: serde_json::Error| SyncError::InvalidFile(format!("{path}: {e}"));
+    match path {
+        COLLECTIONS => lib
+            .collections
+            .extend(serde_json::from_str::<Vec<Collection>>(content).map_err(invalid)?),
+        DELETED => lib
+            .deleted
+            .extend(serde_json::from_str::<BTreeMap<String, f64>>(content).map_err(invalid)?),
+        _ => lib
+            .entries
+            .extend(serde_json::from_str::<Vec<Entry>>(content).map_err(invalid)?),
+    }
+    Ok(())
+}
+
+/// Git blob id of a file.
+fn blob_sha(content: &str) -> String {
+    let mut hash = sha1_smol::Sha1::new();
+    hash.update(format!("blob {}\0", content.len()).as_bytes());
+    hash.update(content.as_bytes());
+    hash.digest().to_string()
+}
+
+/// Remote data files that differ from the local ones. `remote` maps path → blob id.
+fn to_download(local: &BTreeMap<String, String>, remote: &BTreeMap<String, String>) -> Vec<String> {
+    remote
+        .iter()
+        .filter(|(path, sha)| is_data_file(path) && local.get(*path).is_none_or(|c| blob_sha(c) != **sha))
+        .map(|(path, _)| path.clone())
+        .collect()
+}
+
+/// Writes and removals (`None`) that turn the remote files into `files`.
+fn changes(files: &BTreeMap<String, String>, remote: &BTreeMap<String, String>) -> Vec<(String, Option<String>)> {
+    let mut changes: Vec<(String, Option<String>)> = files
+        .iter()
+        .filter(|(path, content)| remote.get(*path) != Some(&blob_sha(content)))
+        .map(|(path, content)| (path.clone(), Some(content.clone())))
+        .collect();
+    changes.extend(
+        remote
+            .keys()
+            .filter(|path| is_data_file(path) && !files.contains_key(*path))
+            .map(|path| (path.clone(), None)),
+    );
+    changes
 }
 
 /// Merges two replicas. Newer edits win, deletions are kept as tombstones,
@@ -122,65 +225,58 @@ pub fn merge(a: &Library, b: &Library) -> Library {
     }
 }
 
-/// Pulls the gist, merges and pushes. Returns the merged library and the gist id.
+/// Pulls the files that changed, merges and pushes the result in one commit.
+/// Returns the merged library and the repository as `owner/name`.
 pub async fn sync(config: &SyncConfig, local: &Library) -> Result<(Library, String), SyncError> {
     let token = config.token.trim();
     if token.is_empty() {
         return Err(SyncError::NotConfigured);
     }
-    let mut id = config.gist_id.trim().to_string();
-    let mut remote = None;
-    if !id.is_empty() {
-        match read_gist(token, &id).await {
-            Ok(r) => remote = r,
-            Err(SyncError::Http(404, _)) => id.clear(),
-            Err(e) => return Err(e),
+    let repo = open_repo(token, &config.repo).await?;
+    let mut local = local.clone();
+    for _ in 0..4 {
+        let Some((parent, tree)) = head(token, &repo).await? else {
+            init(token, &repo).await?;
+            continue;
+        };
+        let remote = remote_files(token, &repo, &tree).await?;
+        let mut pulled = Library::default();
+        for path in to_download(&to_files(&local), &remote) {
+            read_file(&mut pulled, &path, &blob(token, &repo, &remote[&path]).await?)?;
         }
+        let merged = merge(&local, &pulled);
+        let changes = changes(&to_files(&merged), &remote);
+        if changes.is_empty() || commit(token, &repo, &parent, &tree, &changes).await? {
+            return Ok((merged, repo.name));
+        }
+        local = merged;
     }
-    if id.is_empty()
-        && let Some(found) = find_gist(token).await?
-    {
-        remote = read_gist(token, &found).await?;
-        id = found;
-    }
-
-    let merged = match &remote {
-        Some(r) => merge(local, r),
-        None => merge(local, local),
-    };
-    if remote.as_ref().is_some_and(|r| merge(r, r) == merged) {
-        return Ok((merged, id));
-    }
-    let content = serde_json::to_string_pretty(&merged).map_err(|e| SyncError::InvalidFile(e.to_string()))?;
-    let files = json!({ FILE: { "content": content } });
-    if id.is_empty() {
-        let body = json!({ "description": "easy-ref library", "public": false, "files": files });
-        let created = send(authorized(Request::post(&format!("{API}/gists")), token).json(&body)).await?;
-        id = created["id"].as_str().unwrap_or_default().to_string();
-    } else {
-        let body = json!({ "files": files });
-        send(authorized(Request::patch(&format!("{API}/gists/{id}")), token).json(&body)).await?;
-    }
-    Ok((merged, id))
+    Err(SyncError::Conflict)
 }
 
-fn authorized(builder: RequestBuilder, token: &str) -> RequestBuilder {
-    builder
+struct Repo {
+    /// `owner/name`
+    name: String,
+    branch: String,
+}
+
+fn api(method: fn(&str) -> RequestBuilder, path: &str, token: &str) -> RequestBuilder {
+    method(&format!("{API}{path}"))
         .header("Authorization", &format!("Bearer {token}"))
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28")
         .cache(web_sys::RequestCache::NoStore)
 }
 
-async fn send(request: Result<Request, gloo_net::Error>) -> Result<Value, SyncError> {
-    let resp = request
-        .map_err(|e| SyncError::Network(e.to_string()))?
-        .send()
-        .await
-        .map_err(|e| SyncError::Network(e.to_string()))?;
+fn network(e: gloo_net::Error) -> SyncError {
+    SyncError::Network(e.to_string())
+}
+
+async fn fetch(request: Result<Request, gloo_net::Error>) -> Result<Response, SyncError> {
+    let resp = request.map_err(network)?.send().await.map_err(network)?;
     let status = resp.status();
     if (200..300).contains(&status) {
-        return resp.json().await.map_err(|e| SyncError::InvalidFile(e.to_string()));
+        return Ok(resp);
     }
     let message = resp
         .json::<Value>()
@@ -195,44 +291,139 @@ async fn send(request: Result<Request, gloo_net::Error>) -> Result<Value, SyncEr
     })
 }
 
-/// Id of a gist of this account that contains [`FILE`].
-async fn find_gist(token: &str) -> Result<Option<String>, SyncError> {
-    for page in 1..=10 {
-        let list =
-            send(authorized(Request::get(&format!("{API}/gists?per_page=100&page={page}")), token).build()).await?;
-        let Some(gists) = list.as_array() else { break };
-        if let Some(gist) = gists.iter().find(|g| g["files"].get(FILE).is_some()) {
-            return Ok(gist["id"].as_str().map(str::to_string));
-        }
-        if gists.len() < 100 {
-            break;
-        }
-    }
-    Ok(None)
+async fn send(request: Result<Request, gloo_net::Error>) -> Result<Value, SyncError> {
+    fetch(request)
+        .await?
+        .json()
+        .await
+        .map_err(|e| SyncError::InvalidFile(e.to_string()))
 }
 
-async fn read_gist(token: &str, id: &str) -> Result<Option<Library>, SyncError> {
-    let gist = send(authorized(Request::get(&format!("{API}/gists/{id}")), token).build()).await?;
-    let file = &gist["files"][FILE];
-    if file.is_null() {
-        return Ok(None);
-    }
-    let content = if file["truncated"].as_bool() == Some(true) {
-        let url = file["raw_url"].as_str().unwrap_or_default();
-        let resp = Request::get(url)
-            .send()
-            .await
-            .map_err(|e| SyncError::Network(e.to_string()))?;
-        resp.text().await.map_err(|e| SyncError::Network(e.to_string()))?
-    } else {
-        file["content"].as_str().unwrap_or_default().to_string()
+async fn get(token: &str, path: &str) -> Result<Value, SyncError> {
+    send(api(Request::get, path, token).build()).await
+}
+
+async fn post(token: &str, path: &str, body: &Value) -> Result<Value, SyncError> {
+    send(api(Request::post, path, token).json(body)).await
+}
+
+async fn login(token: &str) -> Result<String, SyncError> {
+    let user = get(token, "/user").await?;
+    Ok(user["login"].as_str().unwrap_or_default().to_string())
+}
+
+/// Finds the repository, creating it as a private one in the token's account if missing.
+async fn open_repo(token: &str, repo: &str) -> Result<Repo, SyncError> {
+    let repo = repo.trim().trim_matches('/');
+    let mut user = None;
+    let (owner, name) = match repo.split_once('/') {
+        Some((owner, name)) => (owner.to_string(), name.to_string()),
+        None => {
+            let login = login(token).await?;
+            user = Some(login.clone());
+            (login, if repo.is_empty() { DEFAULT_REPO } else { repo }.to_string())
+        }
     };
-    if content.trim().is_empty() {
-        return Ok(None);
+    let missing = || SyncError::NoRepo(format!("{owner}/{name}"));
+    let info = match get(token, &format!("/repos/{owner}/{name}")).await {
+        Err(SyncError::Http(404, _)) => {
+            let user = match user {
+                Some(user) => user,
+                None => login(token).await?,
+            };
+            if !user.eq_ignore_ascii_case(&owner) {
+                return Err(missing());
+            }
+            let body = json!({ "name": name, "private": true, "auto_init": true, "description": "easy-ref library" });
+            match post(token, "/user/repos", &body).await {
+                // The name is taken by a repository the token cannot see.
+                Err(SyncError::Http(422, _)) => return Err(missing()),
+                // Tokens without the repo scope get 404.
+                Err(SyncError::Http(404, m)) => return Err(SyncError::Forbidden(m)),
+                other => other?,
+            }
+        }
+        other => other?,
+    };
+    Ok(Repo {
+        name: info["full_name"]
+            .as_str()
+            .map_or_else(|| format!("{owner}/{name}"), str::to_string),
+        branch: info["default_branch"].as_str().unwrap_or("main").to_string(),
+    })
+}
+
+/// Head commit and its tree, or `None` for an empty repository.
+async fn head(token: &str, repo: &Repo) -> Result<Option<(String, String)>, SyncError> {
+    match get(token, &format!("/repos/{}/branches/{}", repo.name, repo.branch)).await {
+        Ok(branch) => {
+            let commit = &branch["commit"];
+            let sha = |v: &Value| v.as_str().unwrap_or_default().to_string();
+            Ok(Some((sha(&commit["sha"]), sha(&commit["commit"]["tree"]["sha"]))))
+        }
+        Err(SyncError::Http(404 | 409, _)) => Ok(None),
+        Err(e) => Err(e),
     }
-    serde_json::from_str(&content)
-        .map(Some)
-        .map_err(|e| SyncError::InvalidFile(e.to_string()))
+}
+
+/// Adds a README so the Git Data API works on an empty repository.
+async fn init(token: &str, repo: &Repo) -> Result<(), SyncError> {
+    let content = web_sys::window().and_then(|w| w.btoa(README).ok()).unwrap_or_default();
+    let body = json!({ "message": "Create easy-ref library", "content": content });
+    let path = format!("/repos/{}/contents/README.md", repo.name);
+    send(api(Request::put, &path, token).json(&body)).await.map(|_| ())
+}
+
+/// Blob ids of all files in a tree, path → sha.
+async fn remote_files(token: &str, repo: &Repo, tree: &str) -> Result<BTreeMap<String, String>, SyncError> {
+    let tree = get(token, &format!("/repos/{}/git/trees/{tree}?recursive=1", repo.name)).await?;
+    Ok(tree["tree"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|f| f["type"] == "blob")
+        .filter_map(|f| Some((f["path"].as_str()?.to_string(), f["sha"].as_str()?.to_string())))
+        .collect())
+}
+
+async fn blob(token: &str, repo: &Repo, sha: &str) -> Result<String, SyncError> {
+    let request = api(Request::get, &format!("/repos/{}/git/blobs/{sha}", repo.name), token)
+        .header("Accept", "application/vnd.github.raw+json")
+        .build();
+    fetch(request).await?.text().await.map_err(network)
+}
+
+/// Commits the changes on top of `parent`. `false` if the branch moved meanwhile.
+async fn commit(
+    token: &str,
+    repo: &Repo,
+    parent: &str,
+    base_tree: &str,
+    changes: &[(String, Option<String>)],
+) -> Result<bool, SyncError> {
+    let items: Vec<Value> = changes
+        .iter()
+        .map(|(path, content)| match content {
+            Some(content) => json!({ "path": path, "mode": "100644", "type": "blob", "content": content }),
+            None => json!({ "path": path, "mode": "100644", "type": "blob", "sha": null }),
+        })
+        .collect();
+    let path = format!("/repos/{}/git/trees", repo.name);
+    let tree = post(token, &path, &json!({ "base_tree": base_tree, "tree": items })).await?;
+    let tree = tree["sha"].as_str().unwrap_or_default();
+    if tree == base_tree {
+        return Ok(true);
+    }
+    let path = format!("/repos/{}/git/commits", repo.name);
+    let body = json!({ "message": "Sync library", "tree": tree, "parents": [parent] });
+    let commit = post(token, &path, &body).await?;
+    let body = json!({ "sha": commit["sha"], "force": false });
+    let path = format!("/repos/{}/git/refs/heads/{}", repo.name, repo.branch);
+    match send(api(Request::patch, &path, token).json(&body)).await {
+        Ok(_) => Ok(true),
+        Err(SyncError::Http(409 | 422, _)) => Ok(false),
+        Err(e) => Err(e),
+    }
 }
 
 #[cfg(test)]
@@ -389,8 +580,90 @@ mod tests {
             }
             .is_configured()
         );
-        let old: SyncConfig =
-            serde_json::from_str(r#"{"token":"t","repo":"me/refs","branch":"main","auto":true}"#).unwrap();
-        assert_eq!((old.token.as_str(), old.gist_id.as_str(), old.auto), ("t", "", true));
+        let old: SyncConfig = serde_json::from_str(r#"{"token":"t","gist_id":"abc","auto":true}"#).unwrap();
+        assert_eq!((old.token.as_str(), old.repo.as_str(), old.auto), ("t", "", true));
+    }
+
+    fn library(n: usize) -> Library {
+        let mut lib = Library::default();
+        for i in 0..n {
+            lib.entries.push(entry(
+                &format!("e{i}"),
+                &format!("10.1/{i}"),
+                &format!("K{i}"),
+                i as f64,
+                i as f64,
+            ));
+        }
+        lib.collections.push(collection("c", &["e1", "e2"], 1.0));
+        lib.deleted.insert("gone".into(), 5.0);
+        lib
+    }
+
+    fn shas(files: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+        files.iter().map(|(p, c)| (p.clone(), blob_sha(c))).collect()
+    }
+
+    fn read_all(files: &BTreeMap<String, String>, paths: &[String]) -> Library {
+        let mut lib = Library::default();
+        for path in paths {
+            read_file(&mut lib, path, &files[path]).unwrap();
+        }
+        lib
+    }
+
+    #[test]
+    fn blob_ids_match_git() {
+        assert_eq!(blob_sha("hello\n"), "ce013625030ba8dba906f756967f9e9ca394464a");
+    }
+
+    #[test]
+    fn files_round_trip() {
+        let lib = merge(&library(40), &library(40));
+        let files = to_files(&lib);
+        assert!(files.len() > 3 && files.len() <= SHARDS as usize + 2);
+        assert!(files.keys().all(|p| is_data_file(p)));
+        assert_eq!(files.values().filter(|c| c.contains("\"e7\"")).count(), 1);
+        let paths: Vec<String> = files.keys().cloned().collect();
+        assert_eq!(merge(&read_all(&files, &paths), &Library::default()), lib);
+        assert_eq!(to_files(&lib), files);
+    }
+
+    #[test]
+    fn only_changed_files_are_pulled_and_pushed() {
+        let local = merge(&library(40), &library(40));
+        let mut other = local.clone();
+        other.entries[3].title = "edited".into();
+        other.entries[3].modified = 99.0;
+        let remote = to_files(&other);
+
+        assert!(to_download(&to_files(&local), &shas(&to_files(&local))).is_empty());
+        let paths = to_download(&to_files(&local), &shas(&remote));
+        assert_eq!(paths, [shard(&other.entries[3].id)]);
+        let merged = merge(&local, &read_all(&remote, &paths));
+        assert_eq!(merged, merge(&local, &other));
+        assert!(changes(&to_files(&merged), &shas(&remote)).is_empty());
+
+        let mut fewer = merged.clone();
+        fewer.delete_entries(&["e5".into()], 100.0);
+        let changed: Vec<String> = changes(&to_files(&fewer), &shas(&remote))
+            .into_iter()
+            .map(|(p, _)| p)
+            .collect();
+        assert_eq!(changed, [DELETED.to_string(), shard("e5")]);
+    }
+
+    #[test]
+    fn emptied_files_are_removed() {
+        let mut lib = Library::default();
+        lib.entries.push(entry("x", "", "K", 1.0, 1.0));
+        let remote = shas(&to_files(&lib));
+        lib.delete_entries(&["x".into()], 2.0);
+        let removed: Vec<_> = changes(&to_files(&lib), &remote)
+            .into_iter()
+            .filter(|(_, c)| c.is_none())
+            .map(|(p, _)| p)
+            .collect();
+        assert_eq!(removed, [shard("x")]);
     }
 }

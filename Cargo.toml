@@ -39,6 +39,7 @@ web-sys = { version = "0.3", features = [
   "ScrollLogicalPosition",
 ] }
 console_error_panic_hook = "0.1"
+sha1_smol = "1"
 
 [profile.release]
 opt-level = "z"

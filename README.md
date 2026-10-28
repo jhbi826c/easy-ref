@@ -1,6 +1,6 @@
 # easy-ref
 
-A small reference manager written in Rust (Leptos + WebAssembly). It runs as a static site on GitHub Pages and can sync its library across devices through a secret GitHub gist.
+A small reference manager written in Rust (Leptos + WebAssembly). It runs as a static site on GitHub Pages and can sync its library across devices through a private GitHub repository.
 
 ## Features
 
@@ -35,12 +35,22 @@ The site is served at `https://<user>.github.io/<repo>/`.
 
 ## Sync
 
-The library can be synced through a secret gist in your GitHub account:
+The library can be synced through a private repository in your GitHub account:
 
-1. Create a GitHub token with the `gist` scope ([direct link](https://github.com/settings/tokens/new?scopes=gist&description=easy-ref))
+1. Create a GitHub token with the `repo` scope ([direct link](https://github.com/settings/tokens/new?scopes=repo&description=easy-ref))
 2. In easy-ref, open **Settings → Sync**, paste the token and click **Save and sync**
 
-The first sync creates a secret gist containing `easy-ref-library.json`. Other devices that use a token from the same account find that gist automatically. Each sync pulls, merges and pushes: the newer edit of an entry wins, deletions propagate to other devices, and the same DOI added on two devices becomes one entry. The token is stored only in the browser's localStorage.
+The first sync creates the private repository `easy-ref-library`; other devices find it with a token from the same account. To limit the token to one repository, create a private repository yourself, enter its name under **Repository**, and use a [fine-grained token](https://github.com/settings/personal-access-tokens/new) with access to only that repository and read and write permission for Contents.
+
+The repository holds the library as small files:
+
+```text
+entries/0.json … entries/f.json   entries, spread by id, one per line
+collections.json                  collections, one per line
+deleted.json                      ids of deleted entries and collections
+```
+
+Each sync downloads only the files that differ from the local copy, merges, and pushes the changed files in one commit. The newer edit of an entry wins, deletions propagate to other devices, and the same DOI added on two devices becomes one entry. If another device pushes in between, the sync pulls and merges again. The token is stored only in the browser's localStorage.
 
 ## Limitations
 

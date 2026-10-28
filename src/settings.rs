@@ -1,13 +1,14 @@
 use crate::app::{AppState, SyncStatus};
 use crate::i18n::Lang;
 use crate::storage;
-use crate::sync::SyncConfig;
+use crate::sync::{DEFAULT_REPO, SyncConfig};
 use leptos::ev::MouseEvent;
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::{JsCast, JsValue};
 
-const TOKEN_URL: &str = "https://github.com/settings/tokens/new?scopes=gist&description=easy-ref";
+const TOKEN_URL: &str = "https://github.com/settings/tokens/new?scopes=repo&description=easy-ref";
+const FINE_GRAINED_URL: &str = "https://github.com/settings/personal-access-tokens/new";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Theme {
@@ -195,28 +196,31 @@ fn SyncSettings() -> impl IntoView {
     };
     let save_and_sync = move |_| {
         let d = draft.get_untracked();
-        let mut config = state.sync_config.get_untracked();
-        if config.token.trim() != d.token.trim() {
-            config.gist_id.clear();
-        }
-        config.token = d.token.trim().to_string();
-        config.auto = d.auto;
-        apply(config);
+        apply(SyncConfig {
+            token: d.token.trim().to_string(),
+            repo: d.repo.trim().trim_matches('/').to_string(),
+            auto: d.auto,
+        });
         state.start_sync();
     };
     let disconnect = move |_| {
         draft.update(|c| c.token.clear());
         apply(SyncConfig {
-            auto: draft.with_untracked(|c| c.auto),
-            ..Default::default()
+            token: String::new(),
+            ..draft.get_untracked()
         });
         state.sync_status.set(SyncStatus::Idle);
     };
-    let gist_url = move || {
+    let repo_url = move || {
         state
             .sync_config
-            .with(|c| (!c.gist_id.is_empty()).then(|| format!("https://gist.github.com/{}", c.gist_id)))
+            .with(|c| c.repo.contains('/').then(|| format!("https://github.com/{}", c.repo)))
     };
+    // The repository found on the first sync.
+    Effect::new(move |_| {
+        let repo = state.sync_config.with(|c| c.repo.clone());
+        draft.update(|d| d.repo = repo);
+    });
 
     let status = move || match state.sync_status.get() {
         SyncStatus::Failed(e) => Some(("error", (t().sync_error)(&e))),
@@ -246,6 +250,23 @@ fn SyncSettings() -> impl IntoView {
                     {move || t().create_token}
                 </a>
             </p>
+            <label class="field">
+                <span>{move || t().field_repo}</span>
+                <input
+                    type="text"
+                    placeholder=DEFAULT_REPO
+                    autocomplete="off"
+                    spellcheck="false"
+                    prop:value=move || draft.with(|c| c.repo.clone())
+                    on:input=move |ev| draft.update(|c| c.repo = event_target_value(&ev))
+                />
+            </label>
+            <p class="muted small">
+                {move || t().repo_hint} " "
+                <a href=FINE_GRAINED_URL target="_blank" rel="noopener">
+                    {move || t().create_fine_grained}
+                </a>
+            </p>
             <label class="check">
                 <input
                     type="checkbox"
@@ -256,12 +277,12 @@ fn SyncSettings() -> impl IntoView {
             </label>
             {move || status().map(|(class, text)| view! { <p class=format!("sync-status {class}")>{text}</p> })}
             {move || {
-                gist_url()
+                repo_url()
                     .map(|url| {
                         view! {
                             <p class="small">
                                 <a href=url target="_blank" rel="noopener">
-                                    {move || t().open_gist}
+                                    {move || t().open_repo}
                                 </a>
                             </p>
                         }
